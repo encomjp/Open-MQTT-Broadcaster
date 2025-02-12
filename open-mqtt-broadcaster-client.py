@@ -2,14 +2,14 @@ import tkinter as tk
 import traceback
 import sys
 import logging
-from gui.main_window import DPRKMessageBroadcaster
+from gui.main_window import MQTTBroadcaster
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger('dprk_broadcaster')
+logger = logging.getLogger('mqtt_broadcaster')
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     """Handle uncaught exceptions"""
@@ -40,7 +40,7 @@ def main():
         
         # Initialize main application with error handling
         try:
-            app = DPRKMessageBroadcaster(root)
+            app = MQTTBroadcaster(root)
             logger.info("Application initialized successfully")
             root.mainloop()
         except Exception as e:

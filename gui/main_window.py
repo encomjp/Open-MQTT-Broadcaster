@@ -11,10 +11,10 @@ import logging
 
 logger = logging.getLogger('main_window')
 
-class DPRKMessageBroadcaster:
+class MQTTBroadcaster:
     def __init__(self, root):
         self.root = root
-        self.root.title("DPRK Message Broadcaster")
+        self.root.title("MQTT Broadcaster")
         self.root.geometry("1200x800")
         self.root.minsize(900, 600)
         

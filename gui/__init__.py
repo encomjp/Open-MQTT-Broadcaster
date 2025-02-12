@@ -1,1 +1,1 @@
-"""DPRK Message Broadcaster GUI package"""
+"""MQTT Broadcaster GUI package"""
