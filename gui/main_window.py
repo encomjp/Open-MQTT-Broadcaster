@@ -28,6 +28,7 @@ class MQTTBroadcaster:
         self.messages = []
         self.stats_file = "channel_stats.json"
         self.channel_stats = {}
+        self._stats_lock = threading.Lock()
         self._broadcast_active = False
         self.num_threads = 1  # Default number of threads
         self.batch_size = 200  # Internal batch processing size (fixed)
@@ -68,9 +69,7 @@ class MQTTBroadcaster:
                 disconnection_callback=self._on_disconnection
             )
             
-            import modules.module_loader as module_loader
-            self.modules = module_loader.load_all_modules()
-            logger.info(f"Loaded modules: {list(self.modules.keys())}")
+            self._initialize_modules()
             
             logger.info("Loading channel stats...")
             # Load channel stats
@@ -368,12 +367,13 @@ class MQTTBroadcaster:
             self.root.after(self.refresh_interval, lambda: self._display_messages_async(messages, index + self.batch_size, self.batch_size))
 
     def _update_channel_stats(self, channel, action):
-        if channel not in self.channel_stats:
-            self.channel_stats[channel] = {"received": 0, "sent": 0}
-        self.channel_stats[channel][action] += 1
-        
-        total_received = sum(stats["received"] for stats in self.channel_stats.values())
-        total_sent = sum(stats["sent"] for stats in self.channel_stats.values())
+        with self._stats_lock:
+            if channel not in self.channel_stats:
+                self.channel_stats[channel] = {"received": 0, "sent": 0}
+            self.channel_stats[channel][action] += 1
+
+            total_received = sum(stats["received"] for stats in self.channel_stats.values())
+            total_sent = sum(stats["sent"] for stats in self.channel_stats.values())
         self.status_bar.update_message_count(total_received, total_sent, len(self.channel_stats))
 
     def _load_channel_stats(self):
@@ -409,3 +409,13 @@ class MQTTBroadcaster:
             self._display_message("System", "Advanced settings applied.")
         except Exception as e:
             self._display_message("Error", f"Failed to apply advanced settings: {str(e)}")
+
+    def _initialize_modules(self):
+        """Initialize additional modules using the module loader."""
+        try:
+            import modules.module_loader as module_loader
+            self.modules = module_loader.load_all_modules()
+            logger.info(f"Loaded modules: {list(self.modules.keys())}")
+        except Exception as e:
+            logger.error(f"Module initialization error: {e}", exc_info=True)
+            self.modules = {}
