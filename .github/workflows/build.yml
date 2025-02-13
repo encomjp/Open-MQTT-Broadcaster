@@ -26,11 +26,12 @@ jobs:
       - name: Build Executable
         run: pyinstaller --onefile open-mqtt-broadcaster-client.py
       - name: Rename executable for platform
+        shell: bash
         run: |
           cd dist
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
             mv open-mqtt-broadcaster-client.exe open-mqtt-broadcaster-windows.exe
-          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
             mv open-mqtt-broadcaster-client open-mqtt-broadcaster-macos
           else
             mv open-mqtt-broadcaster-client open-mqtt-broadcaster-linux
