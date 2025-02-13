@@ -67,14 +67,16 @@ jobs:
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+      - name: Display structure of downloaded files
+        run: ls -R
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            mqtt-broadcaster-ubuntu-latest/*
-            mqtt-broadcaster-windows-latest/*
-            mqtt-broadcaster-macos-latest/*
-            mqtt-broadcaster-arch/*
+            ./mqtt-broadcaster-ubuntu-latest/open-mqtt-broadcaster-client
+            ./mqtt-broadcaster-windows-latest/open-mqtt-broadcaster-client.exe
+            ./mqtt-broadcaster-macos-latest/open-mqtt-broadcaster-client
+            ./mqtt-broadcaster-arch/open-mqtt-broadcaster-client
           draft: false
           prerelease: false
           generate_release_notes: true 
