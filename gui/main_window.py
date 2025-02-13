@@ -1,6 +1,6 @@
 import tkinter as tk
 from config.theme import ThemeColors
-from utils.mqtt_handler import MQTTHandler
+from modules.mqtt_connection import MQTTHandler
 from .components.base import StatusBar
 from .components.message_components import MessageComponents
 from .components.control_components import ControlComponents
@@ -67,6 +67,10 @@ class MQTTBroadcaster:
                 connection_callback=self._on_connection_status,
                 disconnection_callback=self._on_disconnection
             )
+            
+            import modules.module_loader as module_loader
+            self.modules = module_loader.load_all_modules()
+            logger.info(f"Loaded modules: {list(self.modules.keys())}")
             
             logger.info("Loading channel stats...")
             # Load channel stats
