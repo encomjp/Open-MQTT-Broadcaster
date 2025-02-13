@@ -381,7 +381,7 @@ class MQTTBroadcaster:
             if os.path.exists(self.stats_file):
                 with open(self.stats_file, 'r') as f:
                     self.channel_stats = json.load(f)
-                self._display_message("System", f"Loaded statistics for {len(self.channel_stats)} channels")
+                self._display_message("System", "Ready to connect")
         except Exception as e:
             self._display_message("Error", f"Failed to load channel statistics: {str(e)}")
 
