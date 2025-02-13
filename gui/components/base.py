@@ -6,6 +6,7 @@ class BaseComponent:
         self.parent = parent
         self.colors = colors
         self.frame = None
+        self.style = ttk.Style()
 
 class StyledFrame(BaseComponent):
     def __init__(self, parent, colors, title=None, style='Dark.TFrame'):
@@ -48,18 +49,19 @@ class StatusBar(BaseComponent):
 
     def update_connection_status(self, is_connected):
         text = "Connected" if is_connected else "Disconnected"
-        bg = self.colors['status_success' if is_connected else 'status_error']
-        self.connection_status.configure(text=text, background=bg)
+        style_name = 'Success.TLabel' if is_connected else 'Error.TLabel'
+        self.style.configure(style_name, background=self.colors['status_success' if is_connected else 'status_error'])
+        self.connection_status.configure(text=text, style=style_name)
 
     def update_status(self, message, status_type="normal"):
-        bg_color = {
-            "error": self.colors['status_error'],
-            "success": self.colors['status_success']
-        }.get(status_type, self.colors['status_bg'])
-        
+        style_name = {
+            "error": 'Error.TLabel',
+            "success": 'Success.TLabel'
+        }.get(status_type, 'Normal.TLabel')
+        self.style.configure(style_name, background=self.colors['status_bg'])
         for widget in (self.frame, self.status_label, 
                       self.message_count_label, self.connection_status):
-            widget.configure(background=bg_color)
+            widget.configure(style=style_name)
         self.status_label.configure(text=message)
 
     def update_message_count(self, received, sent, channels):

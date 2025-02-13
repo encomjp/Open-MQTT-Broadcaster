@@ -20,6 +20,7 @@ class MQTTBroadcaster:
         
         # Initialize basic properties
         self.colors = ThemeColors()
+        
         self.messages = []
         self.stats_file = "channel_stats.json"
         self.channel_stats = {}
@@ -155,15 +156,12 @@ class MQTTBroadcaster:
         if not timestamp:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Determine message type
-        if channel.lower() == "error":
-            msg_type = "error"
-        elif channel.lower() == "system":
-            msg_type = "system"
-        elif "broadcast" in message.lower():
+        # More robust message type detection
+        msg_type = "normal"
+        if channel.lower() in ["error", "system"]:
+            msg_type = channel.lower()
+        elif isinstance(message, str) and "broadcast" in message.lower():
             msg_type = "broadcast"
-        else:
-            msg_type = "normal"
 
         # Display if relevant
         current = self.messages_ui.get_current_channel()
