@@ -30,11 +30,11 @@ jobs:
         run: |
           cd dist
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            mv open-mqtt-broadcaster-client.exe open-mqtt-broadcaster-windows.exe
+            mv open-mqtt-broadcaster-client.exe MQTT-Broadcaster-windows.exe
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            mv open-mqtt-broadcaster-client open-mqtt-broadcaster-macos
+            mv open-mqtt-broadcaster-client MQTT-Broadcaster-macos.app
           else
-            mv open-mqtt-broadcaster-client open-mqtt-broadcaster-linux
+            mv open-mqtt-broadcaster-client MQTT-Broadcaster-linux.bin
           fi
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -66,7 +66,7 @@ jobs:
       - name: Rename executable for Arch
         run: |
           cd dist
-          mv open-mqtt-broadcaster-client open-mqtt-broadcaster-arch
+          mv open-mqtt-broadcaster-client MQTT-Broadcaster-arch.bin
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -88,10 +88,10 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ./mqtt-broadcaster-ubuntu-latest/open-mqtt-broadcaster-linux
-            ./mqtt-broadcaster-windows-latest/open-mqtt-broadcaster-windows.exe
-            ./mqtt-broadcaster-macos-latest/open-mqtt-broadcaster-macos
-            ./mqtt-broadcaster-arch/open-mqtt-broadcaster-arch
+            ./mqtt-broadcaster-ubuntu-latest/MQTT-Broadcaster-linux.bin
+            ./mqtt-broadcaster-windows-latest/MQTT-Broadcaster-windows.exe
+            ./mqtt-broadcaster-macos-latest/MQTT-Broadcaster-macos.app
+            ./mqtt-broadcaster-arch/MQTT-Broadcaster-arch.bin
           draft: false
           prerelease: false
           generate_release_notes: true 
