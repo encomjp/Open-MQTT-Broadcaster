@@ -25,11 +25,21 @@ jobs:
           pip install pyinstaller paho-mqtt
       - name: Build Executable
         run: pyinstaller --onefile open-mqtt-broadcaster-client.py
+      - name: Rename executable for platform
+        run: |
+          cd dist
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            mv open-mqtt-broadcaster-client.exe open-mqtt-broadcaster-windows.exe
+          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+            mv open-mqtt-broadcaster-client open-mqtt-broadcaster-macos
+          else
+            mv open-mqtt-broadcaster-client open-mqtt-broadcaster-linux
+          fi
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: mqtt-broadcaster-${{ matrix.os }}
-          path: dist/open-mqtt-broadcaster-client*
+          path: dist/open-mqtt-broadcaster-*
 
   arch_build:
     name: Build Executable on Arch Linux
@@ -52,11 +62,15 @@ jobs:
         run: |
           source venv/bin/activate
           pyinstaller --onefile open-mqtt-broadcaster-client.py
+      - name: Rename executable for Arch
+        run: |
+          cd dist
+          mv open-mqtt-broadcaster-client open-mqtt-broadcaster-arch
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: mqtt-broadcaster-arch
-          path: dist/open-mqtt-broadcaster-client*
+          path: dist/open-mqtt-broadcaster-*
 
   create_release:
     name: Create Release
@@ -73,10 +87,10 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ./mqtt-broadcaster-ubuntu-latest/open-mqtt-broadcaster-client
-            ./mqtt-broadcaster-windows-latest/open-mqtt-broadcaster-client.exe
-            ./mqtt-broadcaster-macos-latest/open-mqtt-broadcaster-client
-            ./mqtt-broadcaster-arch/open-mqtt-broadcaster-client
+            ./mqtt-broadcaster-ubuntu-latest/open-mqtt-broadcaster-linux
+            ./mqtt-broadcaster-windows-latest/open-mqtt-broadcaster-windows.exe
+            ./mqtt-broadcaster-macos-latest/open-mqtt-broadcaster-macos
+            ./mqtt-broadcaster-arch/open-mqtt-broadcaster-arch
           draft: false
           prerelease: false
           generate_release_notes: true 
