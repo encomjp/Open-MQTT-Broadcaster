@@ -30,6 +30,9 @@ class MQTTBroadcaster:
         self.channel_stats = {}
         self._broadcast_active = False
         self.num_threads = 1  # Default number of threads
+        self.batch_size = 200  # Internal batch processing size (fixed)
+        self.refresh_interval = 0    # Refresh Interval (ms) between UI update batches
+        self.cached_messages_limit = 200  # Maximum number of messages to keep in the display
         
         # Initialize GUI first
         self._init_gui()
@@ -101,15 +104,35 @@ class MQTTBroadcaster:
         self.status_bar = StatusBar(self.root, self.colors)
         self.status_bar.frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 5))
 
-        # Add a control for number of threads within the broadcast frame using consistent dark theme
+        # Add Advanced Options arranged horizontally (3 per row)
         broadcast_frame = self.controls.broadcast_frame.frame
         advanced_frame = ttk.LabelFrame(broadcast_frame, text="Advanced Options", style="Dark.TLabelframe")
-        advanced_frame.grid(row=4, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
-        self.thread_label = ttk.Label(advanced_frame, text="Threads:", style="Dark.TLabel")
-        self.thread_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        advanced_frame.grid(row=4, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+
+        # Option 1: Worker Threads
+        self.thread_label = ttk.Label(advanced_frame, text="Worker Threads:", style="Dark.TLabel")
+        self.thread_label.grid(row=0, column=0, padx=5, pady=2, sticky="w")
         self.thread_entry = ttk.Entry(advanced_frame, width=5, style="Dark.TEntry")
         self.thread_entry.insert(0, "1")
-        self.thread_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        self.thread_entry.grid(row=1, column=0, padx=5, pady=2, sticky="w")
+
+        # Option 2: Refresh Interval (ms)
+        self.refresh_interval_label = ttk.Label(advanced_frame, text="Refresh Interval (ms):", style="Dark.TLabel")
+        self.refresh_interval_label.grid(row=0, column=1, padx=5, pady=2, sticky="w")
+        self.refresh_interval_entry = ttk.Entry(advanced_frame, width=5, style="Dark.TEntry")
+        self.refresh_interval_entry.insert(0, "0")
+        self.refresh_interval_entry.grid(row=1, column=1, padx=5, pady=2, sticky="w")
+
+        # Option 3: Cached Messages Limit
+        self.cached_messages_limit_label = ttk.Label(advanced_frame, text="Cached Messages Limit:", style="Dark.TLabel")
+        self.cached_messages_limit_label.grid(row=0, column=2, padx=5, pady=2, sticky="w")
+        self.cached_messages_limit_entry = ttk.Entry(advanced_frame, width=5, style="Dark.TEntry")
+        self.cached_messages_limit_entry.insert(0, "200")
+        self.cached_messages_limit_entry.grid(row=1, column=2, padx=5, pady=2, sticky="w")
+
+        # Apply Button spanning all columns
+        self.apply_button = ttk.Button(advanced_frame, text="Apply", command=self._apply_advanced_settings, style="Dark.TButton")
+        self.apply_button.grid(row=2, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
 
     def _connect_to_broker(self, connection_info):
         """Establish connection to MQTT broker"""
@@ -195,10 +218,6 @@ class MQTTBroadcaster:
         if not target_channels:
             self._show_error("No Channels", "No channels selected for broadcast")
             return
-
-        # Force a single message per channel if a message is typed
-        if broadcast_info.get("message", "").strip():
-            broadcast_info["count"] = 1
 
         try:
             self.num_threads = int(self.thread_entry.get())
@@ -296,11 +315,62 @@ class MQTTBroadcaster:
             messages_to_display = [msg for msg in self.messages if current == "All Channels" or current == msg["channel"]]
             self._display_messages_async(messages_to_display, 0)
 
-    def _display_messages_async(self, messages, index, batch_size=10):
+    def _display_messages_async(self, messages, index, batch_size=50):
         if index < len(messages):
-            for msg in messages[index:index+batch_size]:
-                self._display_message(msg["channel"], msg["message"], msg["timestamp"])
-            self.root.after(10, lambda: self._display_messages_async(messages, index + batch_size, batch_size))
+            texts = []
+            for msg in messages[index:index+self.batch_size]:
+                channel = msg["channel"]
+                message = msg["message"]
+                timestamp = msg["timestamp"]
+                msg_type = "normal"
+                if channel.lower() in ["error", "system"]:
+                    msg_type = channel.lower()
+                elif isinstance(message, str) and "broadcast" in message.lower():
+                    msg_type = "broadcast"
+                texts.append((f"[{timestamp}] ", "timestamp"))
+                texts.append((f"{channel}: {message}\n", msg_type))
+
+            # Group consecutive texts with the same tag for faster processing
+            grouped = []
+            if texts:
+                current_text, current_tag = texts[0]
+                for text, tag in texts[1:]:
+                    if tag == current_tag:
+                        current_text += text
+                    else:
+                        grouped.append((current_text, current_tag))
+                        current_text, current_tag = text, tag
+                grouped.append((current_text, current_tag))
+
+            # Combine grouped texts into one single string and record tag positions
+            combined_text = ""
+            tag_positions = []
+            for text, tag in grouped:
+                start_offset = len(combined_text)
+                combined_text += text
+                end_offset = len(combined_text)
+                tag_positions.append((tag, start_offset, end_offset))
+
+            self.messages_ui.text.config(state='normal')
+            start_index = self.messages_ui.text.index(tk.END)
+            self.messages_ui.text.insert(tk.END, combined_text)
+            for tag, start_offset, end_offset in tag_positions:
+                self.messages_ui.text.tag_add(tag, f"{start_index} + {start_offset} chars", f"{start_index} + {end_offset} chars")
+
+            # Trim excessive lines to keep performance
+            try:
+                current_lines = int(self.messages_ui.text.index("end-1c").split('.')[0])
+                max_lines = self.cached_messages_limit
+                if current_lines > max_lines:
+                    lines_to_delete = current_lines - max_lines
+                    self.messages_ui.text.delete("1.0", f"{lines_to_delete + 1}.0")
+            except Exception:
+                pass
+
+            if self.messages_ui._auto_scroll:
+                self.messages_ui.text.see(tk.END)
+            self.messages_ui.text.config(state='disabled')
+            self.root.after(self.refresh_interval, lambda: self._display_messages_async(messages, index + self.batch_size, self.batch_size))
 
     def _update_channel_stats(self, channel, action):
         if channel not in self.channel_stats:
@@ -334,3 +404,13 @@ class MQTTBroadcaster:
     def _start_channel_status_checker(self):
         """This method is no longer needed as status checking is now threaded in MessageComponents"""
         pass
+
+    def _apply_advanced_settings(self):
+        try:
+            refresh_interval = int(self.refresh_interval_entry.get().strip())
+            cached_limit = int(self.cached_messages_limit_entry.get().strip())
+            self.refresh_interval = refresh_interval
+            self.cached_messages_limit = cached_limit
+            self._display_message("System", "Advanced settings applied.")
+        except Exception as e:
+            self._display_message("Error", f"Failed to apply advanced settings: {str(e)}")

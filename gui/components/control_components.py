@@ -129,6 +129,11 @@ class ControlComponents(BaseComponent):
         delay_frame.grid_columnconfigure(1, weight=1)
 
         ttk.Label(delay_frame, text="Delay:", style='Dark.TLabel').grid(row=0, column=0, padx=5)
+
+        # Create the delay value label first
+        self.delay_value_label = ttk.Label(delay_frame, text="1000 ms", style='Dark.TLabel')
+        self.delay_value_label.grid(row=0, column=2, padx=5)
+
         self.delay_slider = ttk.Scale(
             delay_frame,
             from_=0, to=5000,
@@ -138,8 +143,6 @@ class ControlComponents(BaseComponent):
         )
         self.delay_slider.set(1000)
         self.delay_slider.grid(row=0, column=1, sticky="ew", padx=5)
-        self.delay_value_label = ttk.Label(delay_frame, text=f"{int(self.delay_slider.get())} ms", style='Dark.TLabel')
-        self.delay_value_label.grid(row=0, column=2, padx=5)
 
         # Broadcast button
         self.broadcast_button = ttk.Button(
