@@ -26,7 +26,7 @@ jobs:
       - name: Build Executable
         run: pyinstaller --onefile open-mqtt-broadcaster-client.py
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: mqtt-broadcaster-${{ matrix.os }}
           path: dist/open-mqtt-broadcaster-client*
@@ -49,7 +49,7 @@ jobs:
       - name: Build Executable
         run: pyinstaller --onefile open-mqtt-broadcaster-client.py
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: mqtt-broadcaster-arch
           path: dist/open-mqtt-broadcaster-client* 
