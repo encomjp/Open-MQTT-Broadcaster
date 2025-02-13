@@ -10,6 +10,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger('mqtt_broadcaster')
+# test
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     """Handle uncaught exceptions"""
