@@ -131,13 +131,15 @@ class ControlComponents(BaseComponent):
         ttk.Label(delay_frame, text="Delay:", style='Dark.TLabel').grid(row=0, column=0, padx=5)
         self.delay_slider = ttk.Scale(
             delay_frame,
-            from_=1, to=5000,
+            from_=0, to=5000,
             orient=tk.HORIZONTAL,
-            style='Dark.Horizontal.TScale'
+            style='Dark.Horizontal.TScale',
+            command=lambda value: self.delay_value_label.config(text=f"{int(float(value))} ms")
         )
         self.delay_slider.set(1000)
         self.delay_slider.grid(row=0, column=1, sticky="ew", padx=5)
-        ttk.Label(delay_frame, text="ms", style='Dark.TLabel').grid(row=0, column=2, padx=5)
+        self.delay_value_label = ttk.Label(delay_frame, text=f"{int(self.delay_slider.get())} ms", style='Dark.TLabel')
+        self.delay_value_label.grid(row=0, column=2, padx=5)
 
         # Broadcast button
         self.broadcast_button = ttk.Button(

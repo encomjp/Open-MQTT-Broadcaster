@@ -8,6 +8,10 @@ import json
 from datetime import datetime
 import os
 import logging
+import threading
+import tkinter.ttk as ttk
+import time
+from queue import Queue
 
 logger = logging.getLogger('main_window')
 
@@ -25,6 +29,7 @@ class MQTTBroadcaster:
         self.stats_file = "channel_stats.json"
         self.channel_stats = {}
         self._broadcast_active = False
+        self.num_threads = 1  # Default number of threads
         
         # Initialize GUI first
         self._init_gui()
@@ -95,6 +100,16 @@ class MQTTBroadcaster:
         # Status bar
         self.status_bar = StatusBar(self.root, self.colors)
         self.status_bar.frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 5))
+
+        # Add a control for number of threads within the broadcast frame using consistent dark theme
+        broadcast_frame = self.controls.broadcast_frame.frame
+        advanced_frame = ttk.LabelFrame(broadcast_frame, text="Advanced Options", style="Dark.TLabelframe")
+        advanced_frame.grid(row=4, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+        self.thread_label = ttk.Label(advanced_frame, text="Threads:", style="Dark.TLabel")
+        self.thread_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.thread_entry = ttk.Entry(advanced_frame, width=5, style="Dark.TEntry")
+        self.thread_entry.insert(0, "1")
+        self.thread_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
     def _connect_to_broker(self, connection_info):
         """Establish connection to MQTT broker"""
@@ -181,76 +196,75 @@ class MQTTBroadcaster:
             self._show_error("No Channels", "No channels selected for broadcast")
             return
 
+        # Force a single message per channel if a message is typed
+        if broadcast_info.get("message", "").strip():
+            broadcast_info["count"] = 1
+
+        try:
+            self.num_threads = int(self.thread_entry.get())
+        except ValueError:
+            self.num_threads = 1
         self._perform_broadcast(broadcast_info, target_channels)
 
     def _perform_broadcast(self, broadcast_info, target_channels):
         """Perform broadcast using Tkinter's event loop"""
-        if self._broadcast_active:
-            return
-
+        from queue import Queue
         total_messages = broadcast_info["count"] * len(target_channels)
         self._broadcast_active = True
         self._broadcast_stats = {
             'total_sent': 0,
             'failed_sends': 0,
-            'total_messages': total_messages,
-            'current_msg': 0,
-            'current_channel_idx': 0,
-            'target_channels': target_channels,
-            'broadcast_info': broadcast_info
+            'total_messages': total_messages
         }
-        
+
+        # Create a queue with each channel repeated for the number of messages to send
+        self._broadcast_queue = Queue()
+        for _ in range(broadcast_info["count"]):
+            for channel in target_channels:
+                self._broadcast_queue.put(channel)
+
         self.controls.set_broadcast_state(True)
         self._display_message("System", "Starting broadcast...")
-        
-        # Schedule the first message
-        self.root.after(10, self._send_next_message)
 
-    def _send_next_message(self):
-        """Send next message in broadcast sequence"""
-        if not self._broadcast_active:
-            return
+        self._broadcast_lock = threading.Lock()
+        self._broadcast_threads = []
+        for _ in range(self.num_threads):
+            thread = threading.Thread(target=self._worker_send_message, args=(broadcast_info["message"], broadcast_info["delay"]))
+            thread.daemon = True
+            thread.start()
+            self._broadcast_threads.append(thread)
+        self.root.after(100, self._check_broadcast_complete)
 
-        stats = self._broadcast_stats
-        try:
-            channel = stats['target_channels'][stats['current_channel_idx']]
-            message = stats['broadcast_info']['message']  # Remove the message count suffix
-            
+    def _worker_send_message(self, message, delay):
+        import time
+        while True:
+            try:
+                channel = self._broadcast_queue.get_nowait()
+            except Exception:
+                break
             try:
                 self.mqtt.publish(channel, message)
                 self._update_channel_stats(channel, "sent")
-                stats['total_sent'] += 1
-                
-                progress = (stats['total_sent'] / stats['total_messages']) * 100
-                self.controls.set_broadcast_state(True, progress)
-                
-                if stats['total_sent'] % 5 == 0:
-                    self._update_progress(stats['total_sent'], stats['failed_sends'], stats['total_messages'])
-                
+                with self._broadcast_lock:
+                    self._broadcast_stats['total_sent'] += 1
             except Exception as e:
-                stats['failed_sends'] += 1
-                self._display_message("Error", f"Failed to send to {channel}: {str(e)}")
+                with self._broadcast_lock:
+                    self._broadcast_stats['failed_sends'] += 1
+                self.root.after(0, lambda: self._display_message("Error", f"Failed to send to {channel}: {str(e)}"))
 
-            # Move to next channel
-            stats['current_channel_idx'] += 1
-            if stats['current_channel_idx'] >= len(stats['target_channels']):
-                stats['current_channel_idx'] = 0
-                stats['current_msg'] += 1
+            with self._broadcast_lock:
+                progress = (self._broadcast_stats['total_sent'] / self._broadcast_stats['total_messages']) * 100
+            self.root.after(0, lambda: self.controls.set_broadcast_state(True, progress))
 
-            # Check if broadcast is complete
-            if stats['current_msg'] >= stats['broadcast_info']['count']:
-                self._finalize_broadcast(stats['total_sent'], stats['failed_sends'])
-                self._broadcast_active = False
-                return
+            time.sleep(delay)
+            self._broadcast_queue.task_done()
 
-            # Schedule next message with delay
-            delay = int(stats['broadcast_info']['delay'] * 1000)  # Convert to milliseconds
-            self.root.after(delay, self._send_next_message)
-            
-        except Exception as e:
-            self._display_message("Error", f"Broadcast failed: {str(e)}")
-            self._broadcast_active = False
+    def _check_broadcast_complete(self):
+        if self._broadcast_queue.empty():
+            self._finalize_broadcast(self._broadcast_stats['total_sent'], self._broadcast_stats['failed_sends'])
             self.controls.set_broadcast_state(False)
+        else:
+            self.root.after(100, self._check_broadcast_complete)
 
     def _update_progress(self, total_sent, failed_sends, total_messages):
         """Update broadcast progress"""
@@ -279,13 +293,14 @@ class MQTTBroadcaster:
         current = self.messages_ui.get_current_channel()
         
         if current:
-            for msg in self.messages:
-                if current == "All Channels" or current == msg["channel"]:
-                    self._display_message(
-                        msg["channel"],
-                        msg["message"],
-                        msg["timestamp"]
-                    )
+            messages_to_display = [msg for msg in self.messages if current == "All Channels" or current == msg["channel"]]
+            self._display_messages_async(messages_to_display, 0)
+
+    def _display_messages_async(self, messages, index, batch_size=10):
+        if index < len(messages):
+            for msg in messages[index:index+batch_size]:
+                self._display_message(msg["channel"], msg["message"], msg["timestamp"])
+            self.root.after(10, lambda: self._display_messages_async(messages, index + batch_size, batch_size))
 
     def _update_channel_stats(self, channel, action):
         if channel not in self.channel_stats:

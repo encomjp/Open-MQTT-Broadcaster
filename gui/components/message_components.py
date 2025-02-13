@@ -273,6 +273,19 @@ class MessageComponents(BaseComponent):
         else:
             self.text.see(tk.END)
 
+        # Trim the text widget content if too many lines are present to improve performance
+        max_lines = 500
+        try:
+            current_lines = int(self.text.index("end-1c").split('.')[0])
+            if current_lines > max_lines:
+                self.text.config(state='normal')
+                # Delete the oldest lines so that only max_lines remain
+                lines_to_delete = current_lines - max_lines
+                self.text.delete("1.0", f"{lines_to_delete + 1}.0")
+                self.text.config(state='disabled')
+        except Exception as e:
+            pass
+
     def _on_mouse_scroll(self, event):
         """Handle mouse scroll events"""
         import time
