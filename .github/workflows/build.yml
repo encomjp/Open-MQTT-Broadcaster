@@ -41,13 +41,17 @@ jobs:
       - name: Update system and install dependencies
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm python python-pip base-devel
+          pacman -S --noconfirm python python-pip python-virtualenv base-devel
       - name: Install pip dependencies
         run: |
-          pip install --upgrade pip
-          pip install pyinstaller paho-mqtt
+          python -m venv venv
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller paho-mqtt
       - name: Build Executable
-        run: pyinstaller --onefile open-mqtt-broadcaster-client.py
+        run: |
+          source venv/bin/activate
+          pyinstaller --onefile open-mqtt-broadcaster-client.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
