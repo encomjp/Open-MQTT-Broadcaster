@@ -56,4 +56,25 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mqtt-broadcaster-arch
-          path: dist/open-mqtt-broadcaster-client* 
+          path: dist/open-mqtt-broadcaster-client*
+
+  create_release:
+    name: Create Release
+    needs: [cross_build, arch_build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            mqtt-broadcaster-ubuntu-latest/*
+            mqtt-broadcaster-windows-latest/*
+            mqtt-broadcaster-macos-latest/*
+            mqtt-broadcaster-arch/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true 
