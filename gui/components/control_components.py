@@ -24,7 +24,7 @@ class ControlComponents(BaseComponent):
         
         # Connection Type
         self.conn_type = tk.StringVar(value="manual")
-        for value, text in [("manual", "Manual"), ("auto", "Auto")]:
+        for value, text in [("manual", "Manual")]:
             ttk.Radiobutton(
                 frame.frame,
                 text=text,

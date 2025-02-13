@@ -136,21 +136,12 @@ class MQTTBroadcaster:
 
     def _connect_to_broker(self, connection_info):
         """Establish connection to MQTT broker"""
-        if connection_info["auto"]:
-            try:
-                host, port, protocol = MQTTHandler.auto_detect_connection()
-                self.mqtt.connect(host, port, protocol, connection_info["topic"])
-            except Exception as e:
-                self._show_error("Auto-detection failed", str(e))
-                self.controls.set_connected_state(False)
-                return
-        else:
-            self.mqtt.connect(
-                connection_info["host"],
-                connection_info["port"],
-                connection_info["protocol"],
-                connection_info["topic"]
-            )
+        self.mqtt.connect(
+            connection_info["host"],
+            connection_info["port"],
+            connection_info["protocol"],
+            connection_info["topic"]
+        )
 
     def _disconnect_from_broker(self):
         self.mqtt.disconnect()
