@@ -122,6 +122,25 @@ class MQTTBroadcaster:
         )
         self.messages_ui.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
         
+        # MQTT Scanner Tab
+        scanner_tab = ttk.Frame(self.notebook)
+        scanner_tab.grid_columnconfigure(0, weight=1)
+        scanner_tab.grid_rowconfigure(1, weight=1)
+        self.notebook.add(scanner_tab, text="MQTT Scanner")
+
+        # Scanner UI: a frame with a button to scan and a listbox for results
+        scanner_frame = ttk.Frame(scanner_tab, padding=10)
+        scanner_frame.grid(row=0, column=0, sticky="nsew")
+        scanner_frame.grid_columnconfigure(0, weight=1)
+        scanner_frame.grid_rowconfigure(1, weight=1)
+
+        scan_button = ttk.Button(scanner_frame, text="Scan for MQTT Servers", command=self._start_scan)
+        scan_button.grid(row=0, column=0, sticky="w", pady=5)
+
+        # Listbox to display scan results
+        self.scan_results = tk.Listbox(scanner_frame, bg=self.colors['bg_lighter'], fg=self.colors['fg'])
+        self.scan_results.grid(row=1, column=0, sticky="nsew", pady=5)
+
         # Status bar below the Notebook, within the container
         self.status_bar = StatusBar(container, self.colors)
         self.status_bar.frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
@@ -417,3 +436,17 @@ class MQTTBroadcaster:
         except Exception as e:
             logger.error(f"Module initialization error: {e}", exc_info=True)
             self.modules = {}
+
+    def _start_scan(self):
+        """Scan local network for MQTT servers (dummy implementation)."""
+        import tkinter as tk
+        # Clear previous scan results
+        self.scan_results.delete(0, tk.END)
+
+        # Dummy scan results; replace with real network scanning logic
+        dummy_results = ["192.168.1.10:1883", "192.168.1.15:1883"]
+        for server in dummy_results:
+            self.scan_results.insert(tk.END, server)
+
+        # Optionally, display a system message about scan completion
+        self._display_message("System", f"Scan complete. Found {len(dummy_results)} servers.")
