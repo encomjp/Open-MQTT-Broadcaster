@@ -10,6 +10,7 @@ Open MQTT Broadcaster is a Python-based desktop application built using Tkinter 
 - **Advanced Options**: Configure worker threads, refresh interval (delay between UI update batches), and cached messages limit directly from the GUI to customize performance according to your needs.
 - **Channel Management**: Automatically show channels and update channel statuses (e.g., online/offline) based on message activity.
 - **Statistics Tracking**: Maintain and persist statistics such as the number of messages received and sent per channel.
+- **Modular Design**: The GUI is built using a modular, tabbed interface (ttk.Notebook) that allows easy integration of new modules (e.g., an MQTT Scanner) without requiring major refactoring.
 
 ## Installation
 
@@ -68,7 +69,7 @@ Open MQTT Broadcaster is a Python-based desktop application built using Tkinter 
 
 ## Project Structure
 
-- **gui/**: Contains all Tkinter GUI components (main windows, control panels, message displays, etc.).
+- **gui/**: Contains all Tkinter GUI components and now uses a tabbed (modular) interface (ttk.Notebook) for easy integration of new modules, such as an MQTT Scanner, alongside the existing Broadcaster functionality.
 - **config/**: Contains theme configurations and styling information.
 - **utils/**: Contains utility modules including the MQTT handler.
 - **open-mqtt-broadcaster-client.py**: Entry point to launch the application.

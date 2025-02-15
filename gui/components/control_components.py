@@ -5,6 +5,8 @@ from .base import BaseComponent, StyledFrame
 class ControlComponents(BaseComponent):
     def __init__(self, parent, colors, on_connect=None, on_disconnect=None, on_broadcast=None):
         super().__init__(parent, colors)
+        from tkinter import ttk
+        self.frame = ttk.Frame(parent, style='Dark.TFrame')
         self.on_connect = on_connect
         self.on_disconnect = on_disconnect
         self.on_broadcast = on_broadcast
@@ -20,7 +22,7 @@ class ControlComponents(BaseComponent):
         self.broadcast_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=5)
 
     def _create_connection_frame(self):
-        frame = StyledFrame(self.parent, self.colors, title="Connection Settings")
+        frame = StyledFrame(self.frame, self.colors, title="Connection Settings")
         
         # Connection Type
         self.conn_type = tk.StringVar(value="manual")
@@ -81,7 +83,7 @@ class ControlComponents(BaseComponent):
             setattr(self, attr, widget)
 
     def _create_broadcast_frame(self):
-        frame = StyledFrame(self.parent, self.colors, title="Message Broadcasting")
+        frame = StyledFrame(self.frame, self.colors, title="Message Broadcasting")
         frame.frame.grid_columnconfigure(1, weight=1)
 
         # Create broadcast components

@@ -82,60 +82,49 @@ class MQTTBroadcaster:
             self._show_error("Initialization Error", str(e))
 
     def _init_gui(self):
-        # Configure main window grid
+        from tkinter import ttk
+        # Configure root grid
+        self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
-        self.root.grid_rowconfigure(1, weight=1)
         
-        # Control components (connection and broadcast)
+        # Create a container frame for the Notebook and Status Bar
+        container = ttk.Frame(self.root)
+        container.grid(row=0, column=0, sticky="nsew")
+        container.grid_rowconfigure(0, weight=1)
+        container.grid_rowconfigure(1, weight=0)
+        container.grid_columnconfigure(0, weight=1)
+        
+        # Create Notebook inside container
+        self.notebook = ttk.Notebook(container)
+        self.notebook.grid(row=0, column=0, sticky="nsew", padx=10, pady=5)
+        
+        # Broadcaster Tab (existing functionality)
+        broadcaster_tab = ttk.Frame(self.notebook)
+        broadcaster_tab.grid_columnconfigure(0, weight=1)
+        broadcaster_tab.grid_rowconfigure(1, weight=1)
+        self.notebook.add(broadcaster_tab, text="Broadcaster")
+        
+        # Control components (connection and broadcast) in Broadcaster Tab
         self.controls = ControlComponents(
-            self.root, 
+            broadcaster_tab, 
             self.colors,
             on_connect=self._connect_to_broker,
             on_disconnect=self._disconnect_from_broker,
             on_broadcast=self._start_broadcast
         )
+        self.controls.frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(5, 0))
         
-        # Message components (channels and messages)
+        # Message components (channels and messages) in Broadcaster Tab
         self.messages_ui = MessageComponents(
-            self.root,
+            broadcaster_tab,
             self.colors,
             on_channel_selection=self._on_channel_selection
         )
         self.messages_ui.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
         
-        # Status bar
-        self.status_bar = StatusBar(self.root, self.colors)
-        self.status_bar.frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 5))
-
-        # Add Advanced Options arranged horizontally (3 per row)
-        broadcast_frame = self.controls.broadcast_frame.frame
-        advanced_frame = ttk.LabelFrame(broadcast_frame, text="Advanced Options", style="Dark.TLabelframe")
-        advanced_frame.grid(row=4, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
-
-        # Option 1: Worker Threads
-        self.thread_label = ttk.Label(advanced_frame, text="Worker Threads:", style="Dark.TLabel")
-        self.thread_label.grid(row=0, column=0, padx=5, pady=2, sticky="w")
-        self.thread_entry = ttk.Entry(advanced_frame, width=5, style="Dark.TEntry")
-        self.thread_entry.insert(0, "1")
-        self.thread_entry.grid(row=1, column=0, padx=5, pady=2, sticky="w")
-
-        # Option 2: Refresh Interval (ms)
-        self.refresh_interval_label = ttk.Label(advanced_frame, text="Refresh Interval (ms):", style="Dark.TLabel")
-        self.refresh_interval_label.grid(row=0, column=1, padx=5, pady=2, sticky="w")
-        self.refresh_interval_entry = ttk.Entry(advanced_frame, width=5, style="Dark.TEntry")
-        self.refresh_interval_entry.insert(0, "0")
-        self.refresh_interval_entry.grid(row=1, column=1, padx=5, pady=2, sticky="w")
-
-        # Option 3: Cached Messages Limit
-        self.cached_messages_limit_label = ttk.Label(advanced_frame, text="Cached Messages Limit:", style="Dark.TLabel")
-        self.cached_messages_limit_label.grid(row=0, column=2, padx=5, pady=2, sticky="w")
-        self.cached_messages_limit_entry = ttk.Entry(advanced_frame, width=5, style="Dark.TEntry")
-        self.cached_messages_limit_entry.insert(0, "200")
-        self.cached_messages_limit_entry.grid(row=1, column=2, padx=5, pady=2, sticky="w")
-
-        # Apply Button spanning all columns
-        self.apply_button = ttk.Button(advanced_frame, text="Apply", command=self._apply_advanced_settings, style="Dark.TButton")
-        self.apply_button.grid(row=2, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+        # Status bar below the Notebook, within the container
+        self.status_bar = StatusBar(container, self.colors)
+        self.status_bar.frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
 
     def _connect_to_broker(self, connection_info):
         """Establish connection to MQTT broker"""
@@ -148,7 +137,8 @@ class MQTTBroadcaster:
                     connection_info["topic"]
                 )
             except Exception as e:
-                self.root.after(0, lambda: self._on_connection_status(False, str(e)))
+                error_msg = str(e)
+                self.root.after(0, lambda error_msg=error_msg: self._on_connection_status(False, error_msg))
 
         # Start connection in separate thread
         threading.Thread(target=connect_thread, daemon=True).start()
