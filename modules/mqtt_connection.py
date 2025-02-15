@@ -2,6 +2,7 @@ import paho.mqtt.client as mqtt
 from paho.mqtt.client import MQTTv5
 import socket
 import logging
+import threading
 
 logger = logging.getLogger('mqtt_handler')
 
@@ -14,10 +15,15 @@ class MQTTHandler:
         self.connection_callback = connection_callback
         self.disconnection_callback = disconnection_callback
         self._check_connection_timer = None
+        self._connection_timeout_occurred = False
 
     def connect(self, host, port, protocol="mqtt", topic="#"):
         """Connect to MQTT broker with timeout"""
         try:
+            self._connection_timeout_occurred = False
+            if self._check_connection_timer is not None:
+                self._check_connection_timer.cancel()
+                self._check_connection_timer = None
             self.client = mqtt.Client()
             self.client.on_connect = self._on_connect
             self.client.on_message = self._on_message
@@ -32,7 +38,12 @@ class MQTTHandler:
             self.topic = topic
             self.client.subscribe(topic)
             self.client.loop_start()
+            self._check_connection_timer = threading.Timer(10.0, self._timeout_callback)
+            self._check_connection_timer.start()
         except Exception as e:
+            if self._check_connection_timer is not None:
+                self._check_connection_timer.cancel()
+                self._check_connection_timer = None
             logger.error(f"Connection failed: {e}")
             if self.connection_callback:
                 self.connection_callback(False, str(e))
@@ -58,6 +69,11 @@ class MQTTHandler:
 
     def _on_connect(self, client, userdata, flags, rc):
         """Handle connection callback"""
+        if self._check_connection_timer is not None:
+            self._check_connection_timer.cancel()
+            self._check_connection_timer = None
+        if self._connection_timeout_occurred:
+            return
         if rc == 0:
             self.is_connected = True
             if self.connection_callback:
@@ -77,6 +93,19 @@ class MQTTHandler:
         self.is_connected = False
         if self.disconnection_callback:
             self.disconnection_callback(rc)
+        if self._check_connection_timer is not None:
+            self._check_connection_timer.cancel()
+            self._check_connection_timer = None
+
+    def _timeout_callback(self):
+        if self._connection_timeout_occurred:
+            return
+        if not self.is_connected:
+            self._connection_timeout_occurred = True
+            logger.error("Connection timeout reached, disconnecting")
+            if self.connection_callback:
+                self.connection_callback(False, "Connection timeout reached")
+            self.disconnect()
 
     @staticmethod
     def auto_detect_connection(default_host="10.16.1.246"):
