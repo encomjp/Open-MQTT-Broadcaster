@@ -139,12 +139,20 @@ class MQTTBroadcaster:
 
     def _connect_to_broker(self, connection_info):
         """Establish connection to MQTT broker"""
-        self.mqtt.connect(
-            connection_info["host"],
-            connection_info["port"],
-            connection_info["protocol"],
-            connection_info["topic"]
-        )
+        def connect_thread():
+            try:
+                self.mqtt.connect(
+                    connection_info["host"],
+                    connection_info["port"],
+                    connection_info["protocol"],
+                    connection_info["topic"]
+                )
+            except Exception as e:
+                self.root.after(0, lambda: self._on_connection_status(False, str(e)))
+
+        # Start connection in separate thread
+        threading.Thread(target=connect_thread, daemon=True).start()
+        self._display_message("System", "Connecting to broker...")
 
     def _disconnect_from_broker(self):
         self.mqtt.disconnect()

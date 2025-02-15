@@ -9,99 +9,71 @@ class MQTTHandler:
     def __init__(self, message_callback=None, connection_callback=None, disconnection_callback=None):
         self.client = None
         self.is_connected = False
+        self.topic = "#"
         self.message_callback = message_callback
         self.connection_callback = connection_callback
         self.disconnection_callback = disconnection_callback
-        self.topic = "#"
         self._check_connection_timer = None
 
     def connect(self, host, port, protocol="mqtt", topic="#"):
-        """Connect to MQTT broker"""
-        if self.client:
-            self.disconnect()
-
-        self.topic = topic
-        
+        """Connect to MQTT broker with timeout"""
         try:
-            logger.info(f"Attempting connection to {host}:{port} using {protocol}")
-            connect_properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
-            connect_properties.SessionExpiryInterval = 0
-
-            self.client = mqtt.Client(
-                callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-                protocol=MQTTv5,
-                client_id="",
-                reconnect_on_failure=True
-            )
-            
-            # Set callbacks
+            self.client = mqtt.Client()
             self.client.on_connect = self._on_connect
             self.client.on_message = self._on_message
             self.client.on_disconnect = self._on_disconnect
-            self.client.keepalive = 60
 
-            if protocol == "mqtts":
-                self.client.tls_set()
+            # Set connection timeout
+            self.client.connect_timeout = 10.0  # 10 seconds timeout
+            self.client.socket_timeout = 10.0
 
-            # Connect with properties
-            self.client.connect(host, port, properties=connect_properties)
-            self.client.loop_start()  # Use paho's built-in thread for network loop
-            return True
-            
+            # Connect to broker
+            self.client.connect(host, port)
+            self.topic = topic
+            self.client.subscribe(topic)
+            self.client.loop_start()
         except Exception as e:
             logger.error(f"Connection failed: {e}")
-            self.is_connected = False
             if self.connection_callback:
                 self.connection_callback(False, str(e))
-            self._cleanup_connection()
-            return False
-
-    def _cleanup_connection(self):
-        """Clean up MQTT client resources"""
-        if self.client:
-            try:
-                self.client.loop_stop()  # Stop network loop
-                self.client.disconnect()
-            except Exception as e:
-                logger.debug(f"Error during cleanup: {e}")
-            finally:
-                self.client = None
-                self.is_connected = False
+            raise
 
     def disconnect(self):
-        """Safely disconnect from broker"""
-        self._cleanup_connection()
+        """Disconnect from MQTT broker"""
+        if self.client:
+            try:
+                self.client.loop_stop()
+                self.client.disconnect()
+            except Exception as e:
+                logger.error(f"Disconnect error: {e}")
+            finally:
+                self.is_connected = False
+                self.client = None
 
     def publish(self, topic, message):
-        """Publish a message"""
+        """Publish message to topic"""
         if not self.is_connected:
-            raise ConnectionError("Not connected to broker")
+            raise Exception("Not connected to broker")
         self.client.publish(topic, message)
 
-    def _on_connect(self, client, userdata, flags, reason_code, properties):
-        """Handle successful MQTT connection"""
-        self.is_connected = reason_code == 0
-        if self.is_connected:
-            try:
-                logger.info("Connected successfully, subscribing to topic")
-                self.client.subscribe(self.topic)
-                if self.connection_callback:
-                    self.connection_callback(True, None)
-            except Exception as e:
-                logger.error(f"Error during topic subscription: {e}")
-                if self.connection_callback:
-                    self.connection_callback(False, str(e))
-        else:
-            logger.error(f"Connection failed with reason code: {reason_code}")
+    def _on_connect(self, client, userdata, flags, rc):
+        """Handle connection callback"""
+        if rc == 0:
+            self.is_connected = True
             if self.connection_callback:
-                self.connection_callback(False, f"Failed to connect: {mqtt.connack_string(reason_code)}")
+                self.connection_callback(True)
+        else:
+            error_message = f"Connection failed with code {rc}"
+            if self.connection_callback:
+                self.connection_callback(False, error_message)
 
     def _on_message(self, client, userdata, message):
+        """Handle message callback"""
         if self.message_callback:
             self.message_callback(message)
 
-    def _on_disconnect(self, client, userdata, rc, properties=None):
-        logger.warning(f"Disconnected with code {rc}")
+    def _on_disconnect(self, client, userdata, rc):
+        """Handle disconnection"""
         self.is_connected = False
         if self.disconnection_callback:
             self.disconnection_callback(rc)
