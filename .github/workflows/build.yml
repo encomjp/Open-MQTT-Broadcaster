@@ -22,19 +22,34 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller paho-mqtt
+          pip install pyinstaller paho-mqtt tk
       - name: Build Executable
-        run: pyinstaller --onefile open-mqtt-broadcaster-client.py
+        if: runner.os != 'macOS'
+        run: pyinstaller --onefile --hidden-import tkinter --hidden-import paho.mqtt.client --hidden-import json --hidden-import threading --hidden-import queue --hidden-import datetime --hidden-import logging open-mqtt-broadcaster-client.py
+      - name: Build macOS App
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller --windowed --name "MQTT Broadcaster" \
+            --hidden-import tkinter \
+            --hidden-import paho.mqtt.client \
+            --hidden-import json \
+            --hidden-import threading \
+            --hidden-import queue \
+            --hidden-import datetime \
+            --hidden-import logging \
+            open-mqtt-broadcaster-client.py
+          cd dist
+          hdiutil create -volname "MQTT Broadcaster" -srcfolder "MQTT Broadcaster.app" -ov -format UDZO "MQTT-Broadcaster-macos.dmg"
       - name: Rename executable for platform
         shell: bash
         run: |
           cd dist
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            mv open-mqtt-broadcaster-client.exe MQTT-Broadcaster-windows.exe
+            mv open-mqtt-broadcaster-client.exe "MQTT-Broadcaster-Windows.exe"
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            mv open-mqtt-broadcaster-client MQTT-Broadcaster-macos.app
+            mv "MQTT-Broadcaster-macos.dmg" "MQTT-Broadcaster-macOS.dmg"
           else
-            mv open-mqtt-broadcaster-client MQTT-Broadcaster-linux.bin
+            mv open-mqtt-broadcaster-client "MQTT-Broadcaster-Ubuntu.AppImage"
           fi
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -52,21 +67,21 @@ jobs:
       - name: Update system and install dependencies
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm python python-pip python-virtualenv base-devel
+          pacman -S --noconfirm python python-pip python-virtualenv base-devel tk python-tkinter
       - name: Install pip dependencies
         run: |
           python -m venv venv
           source venv/bin/activate
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller paho-mqtt
+          python -m pip install pyinstaller paho-mqtt tk
       - name: Build Executable
         run: |
           source venv/bin/activate
-          pyinstaller --onefile open-mqtt-broadcaster-client.py
+          pyinstaller --onefile --hidden-import tkinter --hidden-import paho.mqtt.client --hidden-import json --hidden-import threading --hidden-import queue --hidden-import datetime --hidden-import logging open-mqtt-broadcaster-client.py
       - name: Rename executable for Arch
         run: |
           cd dist
-          mv open-mqtt-broadcaster-client MQTT-Broadcaster-arch.bin
+          mv open-mqtt-broadcaster-client "MQTT-Broadcaster-Arch.AppImage"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -88,10 +103,10 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ./mqtt-broadcaster-ubuntu-latest/MQTT-Broadcaster-linux.bin
-            ./mqtt-broadcaster-windows-latest/MQTT-Broadcaster-windows.exe
-            ./mqtt-broadcaster-macos-latest/MQTT-Broadcaster-macos.app
-            ./mqtt-broadcaster-arch/MQTT-Broadcaster-arch.bin
+            ./mqtt-broadcaster-ubuntu-latest/MQTT-Broadcaster-Ubuntu.AppImage
+            ./mqtt-broadcaster-windows-latest/MQTT-Broadcaster-Windows.exe
+            ./mqtt-broadcaster-macos-latest/MQTT-Broadcaster-macOS.dmg
+            ./mqtt-broadcaster-arch/MQTT-Broadcaster-Arch.AppImage
           draft: false
           prerelease: false
           generate_release_notes: true 
