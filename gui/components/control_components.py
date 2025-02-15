@@ -24,18 +24,6 @@ class ControlComponents(BaseComponent):
     def _create_connection_frame(self):
         frame = StyledFrame(self.frame, self.colors, title="Connection Settings")
         
-        # Connection Type
-        self.conn_type = tk.StringVar(value="manual")
-        for value, text in [("manual", "Manual")]:
-            ttk.Radiobutton(
-                frame.frame,
-                text=text,
-                variable=self.conn_type,
-                value=value,
-                command=self._toggle_fields,
-                style='Dark.TRadiobutton'
-            ).grid(row=0, column=0 if value == "manual" else 1, padx=5)
-
         # Connection Details
         self.conn_details = ttk.Frame(frame.frame, style='Dark.TFrame')
         self.conn_details.grid(row=1, column=0, columnspan=6, pady=5)
@@ -156,11 +144,6 @@ class ControlComponents(BaseComponent):
         self.broadcast_button.grid(row=3, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
     # Connection methods
-    def _toggle_fields(self):
-        state = "disabled" if self.conn_type.get() == "auto" else "normal"
-        for widget in (self.ip_entry, self.port_entry, self.protocol_combo):
-            widget.config(state=state)
-
     def _toggle_connection(self):
         """Handle connection toggle with loading state"""
         if self.connect_button.cget('text') == "Connect":
@@ -174,28 +157,24 @@ class ControlComponents(BaseComponent):
 
     def _get_connection_info(self):
         try:
-            if self.conn_type.get() == "manual":
-                host = self.ip_entry.get().strip()
-                if not host:
-                    raise ValueError("IP address cannot be empty")
-                
-                try:
-                    port = int(self.port_entry.get())
-                    if not (0 <= port <= 65535):
-                        raise ValueError()
-                except ValueError:
-                    raise ValueError("Port must be a number between 0 and 65535")
-                
-                protocol = self.protocol_combo.get()
-            else:
-                host, port, protocol = "auto", None, None
+            host = self.ip_entry.get().strip()
+            if not host:
+                raise ValueError("IP address cannot be empty")
+
+            try:
+                port = int(self.port_entry.get())
+                if not (0 <= port <= 65535):
+                    raise ValueError()
+            except ValueError:
+                raise ValueError("Port must be a number between 0 and 65535")
+
+            protocol = self.protocol_combo.get()
 
             return {
                 "host": host,
                 "port": port,
                 "protocol": protocol,
                 "topic": self.topic_entry.get().strip() or "#",
-                "auto": self.conn_type.get() == "auto"
             }
         except ValueError as e:
             messagebox.showerror("Connection Error", str(e))
