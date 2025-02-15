@@ -141,6 +141,10 @@ class MQTTBroadcaster:
         self.scan_results = tk.Listbox(scanner_frame, bg=self.colors['bg_lighter'], fg=self.colors['fg'])
         self.scan_results.grid(row=1, column=0, sticky="nsew", pady=5)
 
+        # Button to connect to selected scanned server
+        connect_scanned_button = ttk.Button(scanner_frame, text="Connect to Selected Server", command=self._connect_scanned_server)
+        connect_scanned_button.grid(row=2, column=0, sticky="w", pady=5)
+
         # Status bar below the Notebook, within the container
         self.status_bar = StatusBar(container, self.colors)
         self.status_bar.frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
@@ -450,3 +454,39 @@ class MQTTBroadcaster:
 
         # Optionally, display a system message about scan completion
         self._display_message("System", f"Scan complete. Found {len(dummy_results)} servers.")
+
+    def _connect_scanned_server(self):
+        """Connect to the selected scanned MQTT server."""
+        import tkinter as tk
+        from tkinter import messagebox
+        selection = self.scan_results.curselection()
+        if not selection:
+            messagebox.showerror("No Selection", "Please select a server from the scan results.")
+            return
+
+        server = self.scan_results.get(selection[0])
+        try:
+            host, port = server.split(":")
+            port = int(port)
+        except Exception as e:
+            messagebox.showerror("Invalid Format", "Selected server is not in the correct 'ip:port' format.")
+            return
+
+        # Update connection fields in the ControlComponents of Broadcaster tab
+        self.controls.ip_entry.delete(0, tk.END)
+        self.controls.ip_entry.insert(0, host)
+
+        self.controls.port_entry.delete(0, tk.END)
+        self.controls.port_entry.insert(0, str(port))
+
+        # Set protocol to 'mqtt' and topic to '#' as defaults
+        self.controls.protocol_combo.set("mqtt")
+        self.controls.topic_entry.delete(0, tk.END)
+        self.controls.topic_entry.insert(0, "#")
+
+        # Retrieve connection info using the existing method
+        connection_info = self.controls._get_connection_info()
+        if connection_info and self.controls.on_connect:
+            self.controls.on_connect(connection_info)
+        else:
+            messagebox.showerror("Connection Error", "Unable to retrieve connection info.")
