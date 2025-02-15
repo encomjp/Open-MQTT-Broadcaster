@@ -12,6 +12,10 @@ import threading
 import tkinter.ttk as ttk
 import time
 from queue import Queue
+import socket
+import concurrent.futures
+import subprocess
+import re
 
 logger = logging.getLogger('main_window')
 
@@ -442,18 +446,65 @@ class MQTTBroadcaster:
             self.modules = {}
 
     def _start_scan(self):
-        """Scan local network for MQTT servers (dummy implementation)."""
+        """Scan local network for MQTT servers using python-nmap on ports 1883 and 8883."""
+        import socket
         import tkinter as tk
+        try:
+            import nmap
+        except ImportError:
+            self._display_message("Error", "python-nmap module not installed.")
+            return
+
         # Clear previous scan results
         self.scan_results.delete(0, tk.END)
 
-        # Dummy scan results; replace with real network scanning logic
-        dummy_results = ["192.168.1.10:1883", "192.168.1.15:1883"]
-        for server in dummy_results:
-            self.scan_results.insert(tk.END, server)
+        # Determine local IP address and network range (/24)
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(('8.8.8.8', 80))
+            local_ip = s.getsockname()[0]
+        except Exception:
+            local_ip = '127.0.0.1'
+        finally:
+            s.close()
 
-        # Optionally, display a system message about scan completion
-        self._display_message("System", f"Scan complete. Found {len(dummy_results)} servers.")
+        parts = local_ip.split('.')
+        if len(parts) != 4:
+            network_range = '192.168.1.0/24'
+        else:
+            network_prefix = '.'.join(parts[:3])
+            network_range = f"{network_prefix}.0/24"
+
+        self._display_message("System", f"Scanning network {network_range} for MQTT servers using python-nmap...")
+
+        # Use python-nmap to scan the network
+        try:
+            nm = nmap.PortScanner()
+        except Exception as e:
+            self._display_message("Error", f"Failed to initialize nmap: {str(e)}")
+            return
+
+        try:
+            nm.scan(hosts=network_range, ports="1883,8883", arguments="--open -Pn")
+        except Exception as e:
+            self._display_message("Error", f"nmap scan failed: {str(e)}")
+            return
+
+        found_servers = []
+        for host in nm.all_hosts():
+            if 'tcp' in nm[host]:
+                for port in nm[host]['tcp']:
+                    if str(port) in ['1883', '8883'] and nm[host]['tcp'][port]['state'] == 'open':
+                        found_servers.append(f"{host}:{port}")
+
+        import tkinter.messagebox as messagebox
+        if not found_servers:
+            messagebox.showinfo("Scan Results", "No MQTT servers found.")
+        else:
+            for server in found_servers:
+                self.scan_results.insert(tk.END, server)
+
+        self._display_message("System", f"Scan complete. Found {len(found_servers)} MQTT servers using python-nmap.")
 
     def _connect_scanned_server(self):
         """Connect to the selected scanned MQTT server."""
