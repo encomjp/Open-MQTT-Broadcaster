@@ -67,7 +67,7 @@ jobs:
       - name: Update system and install dependencies
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm python python-pip python-virtualenv base-devel tk python-tkinter
+          pacman -S --noconfirm python python-pip python-virtualenv base-devel tk
       - name: Install pip dependencies
         run: |
           python -m venv venv
