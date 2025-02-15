@@ -28,7 +28,8 @@ def main():
         
         # Create and configure root window
         root = tk.Tk()
-        root.configure(bg='#1e1e1e')
+        from config.theme import apply_styles
+        apply_styles(root)
         
         # Report Python version and thread info
         logger.info(f"Python version: {sys.version}")

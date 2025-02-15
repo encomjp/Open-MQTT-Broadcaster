@@ -39,3 +39,27 @@ class ThemeColors:
 
     def get(self, key, default=None):
         return self.colors.get(key, default)
+
+def apply_styles(root):
+    """Apply modern dark style to the Tkinter app."""
+    from tkinter import ttk
+    style = ttk.Style(root)
+    try:
+        style.theme_use('clam')
+    except Exception:
+        pass
+    tc = ThemeColors()
+    
+    # Configure general widget styles
+    style.configure('TFrame', background=tc['bg'])
+    style.configure('TLabel', background=tc['bg'], foreground=tc['fg'], font=('Segoe UI', 10))
+    style.configure('TButton', background=tc['bg_lighter'], foreground=tc['fg'], font=('Segoe UI', 10), relief='flat', borderwidth=0)
+    style.map('TButton', background=[('active', tc['accent_hover'])])
+    style.configure('TEntry', fieldbackground=tc['input_bg'], foreground=tc['input_fg'], background=tc['bg_lighter'])
+    style.configure('TCombobox', fieldbackground=tc['input_bg'], foreground=tc['input_fg'], background=tc['bg_lighter'])
+    style.configure('TRadiobutton', background=tc['bg'], foreground=tc['fg'], font=('Segoe UI', 10))
+    
+    # Configure Notebook styles
+    style.configure('TNotebook', background=tc['bg'])
+    style.configure('TNotebook.Tab', background=tc['bg_lighter'], foreground=tc['fg'], padding=[10, 5])
+    style.map('TNotebook.Tab', background=[('selected', tc['accent'])])
