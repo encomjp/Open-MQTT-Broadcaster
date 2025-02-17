@@ -13,10 +13,6 @@ jobs:
         include:
           - os: ubuntu-latest
             output_name: mqtt-broadcaster
-            pkg_type: deb
-            pkg_ext: deb
-          - os: ubuntu-latest
-            output_name: mqtt-broadcaster
             pkg_type: appimage
             pkg_ext: AppImage
           - os: windows-latest
@@ -27,10 +23,6 @@ jobs:
             output_name: mqtt-broadcaster
             pkg_type: mac
             pkg_ext: dmg
-          - os: ubuntu-latest
-            output_name: mqtt-broadcaster
-            pkg_type: arch
-            pkg_ext: pkg.tar.zst
 
     steps:
     - uses: actions/checkout@v4
@@ -84,7 +76,7 @@ jobs:
       if: matrix.pkg_type == 'deb'
       run: |
         VERSION=$(echo "${{ github.ref }}" | sed 's/refs\/tags\/v//')
-        mkdir -p deb-pkg/usr/share/applications deb-pkg/usr/share/icons/hicolor/256x256/apps
+        mkdir -p deb-pkg/usr/bin deb-pkg/usr/share/applications deb-pkg/usr/share/icons/hicolor/256x256/apps
         cp dist/${{ matrix.output_name }} deb-pkg/usr/bin/mqtt-broadcaster
         
         # Create desktop entry
@@ -122,6 +114,7 @@ jobs:
     - name: Create AppImage
       if: matrix.pkg_type == 'appimage'
       run: |
+        sudo apt-get update && sudo apt-get install -y imagemagick
         # Create AppDir structure
         mkdir -p AppDir/usr/{bin,share/{applications,icons/hicolor/256x256/apps,metainfo}}
         
@@ -257,11 +250,17 @@ jobs:
       if: runner.os != 'Windows'
       shell: bash
       run: |
-        for file in "${{ matrix.output_name }}.${{ matrix.pkg_ext }}" "dist/${{ matrix.output_name }}.${{ matrix.pkg_ext }}" "mqtt-broadcaster_${VERSION}_amd64.deb"; do
-          if [ -f "$file" ]; then
-            mv "$file" "mqtt-broadcaster-${VERSION}-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}"
+        if [ "${{ matrix.pkg_type }}" = "deb" ]; then
+          if [ -f "mqtt-broadcaster_${VERSION}_amd64.deb" ]; then
+            mv "mqtt-broadcaster_${VERSION}_amd64.deb" "mqtt-broadcaster-${VERSION}-deb.deb"
           fi
-        done
+        else
+          for file in "${{ matrix.output_name }}.${{ matrix.pkg_ext }}" "dist/${{ matrix.output_name }}.${{ matrix.pkg_ext }}"; do
+            if [ -f "$file" ]; then
+              mv "$file" "mqtt-broadcaster-${VERSION}-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}"
+            fi
+          done
+        fi
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
@@ -283,11 +282,11 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          mqtt-broadcaster-appimage/*
-          mqtt-broadcaster-win/*
-          mqtt-broadcaster-mac/*
-          mqtt-broadcaster-arch/*
-          mqtt-broadcaster-deb/*
+          mqtt-broadcaster-${{ github.ref_name }}-appimage.AppImage
+          mqtt-broadcaster-${{ github.ref_name }}-win.exe
+          mqtt-broadcaster-${{ github.ref_name }}-mac.dmg
+          mqtt-broadcaster-${{ github.ref_name }}-arch.pkg.tar.zst
+          mqtt-broadcaster-${{ github.ref_name }}-deb.deb
         body: |
           MQTT Broadcaster ${{ github.ref_name }}
           
