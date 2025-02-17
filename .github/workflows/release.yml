@@ -56,7 +56,7 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y ruby ruby-dev rubygems build-essential zstd rpm fakeroot
+        sudo apt-get install -y ruby ruby-dev rubygems build-essential zstd rpm fakeroot imagemagick
         sudo gem install --no-document fpm
 
     - name: Install AppImage Tools
@@ -73,13 +73,39 @@ jobs:
 
     - name: Build with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --name ${{ matrix.output_name }} --add-data "README.md:." qt_mqtt_broadcaster.py
+        pyinstaller --onefile --windowed --name ${{ matrix.output_name }} --add-data "README.md:." --hidden-import=PyQt6.sip qt_mqtt_broadcaster.py
+
+    - name: Install Additional Dependencies (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        pip install pywin32-ctypes
 
     - name: Create Debian Package
       if: matrix.pkg_type == 'deb'
       run: |
         VERSION=$(echo "${{ github.ref }}" | sed 's/refs\/tags\/v//')
+        mkdir -p deb-pkg/usr/share/applications deb-pkg/usr/share/icons/hicolor/256x256/apps
+        cp dist/${{ matrix.output_name }} deb-pkg/usr/bin/mqtt-broadcaster
+        
+        # Create desktop entry
+        cat > deb-pkg/usr/share/applications/mqtt-broadcaster.desktop << EOF
+        [Desktop Entry]
+        Name=MQTT Broadcaster
+        Comment=MQTT client for testing and debugging
+        Exec=mqtt-broadcaster
+        Icon=mqtt-broadcaster
+        Terminal=false
+        Type=Application
+        Categories=Network;Qt;
+        EOF
+        
+        # Create icon
+        convert -size 256x256 xc:transparent -font DejaVu-Sans -pointsize 24 -gravity center \
+          -draw "text 0,0 'MQTT'" -draw "text 0,30 'Broadcaster'" \
+          deb-pkg/usr/share/icons/hicolor/256x256/apps/mqtt-broadcaster.png
+        
         fpm -s dir -t deb \
+          -C deb-pkg \
           -n mqtt-broadcaster \
           -v ${VERSION} \
           --description "MQTT client for testing and debugging" \
@@ -91,8 +117,7 @@ jobs:
           --depends "python3-qt6" \
           --depends "python3-paho-mqtt" \
           --deb-priority "optional" \
-          --deb-no-default-config-files \
-          dist/${{ matrix.output_name }}=/usr/bin/mqtt-broadcaster
+          --deb-no-default-config-files
 
     - name: Create AppImage
       if: matrix.pkg_type == 'appimage'
@@ -148,31 +173,6 @@ jobs:
             <category>Qt</category>
           </categories>
           <releases>
-            <release version="${{ github.ref_name }}" date="$(date +%Y-%m-%d)"/>
-          </releases>
-        </component>
-        EOF
-        
-        # Install additional dependencies for AppImage creation
-        sudo apt-get update && sudo apt-get install -y imagemagick
-        
-        # Create AppImage using extracted AppImageTool
-        ARCH=x86_64 appimagetool AppDir mqtt-broadcaster-${{ github.ref_name }}-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}
-
-    - name: Create DMG (macOS)
-      if: matrix.pkg_type == 'mac'
-      run: |
-        pip install dmgbuild
-        cat > settings.py << EOF
-        from dmgbuild import *
-        format = 'UDBZ'
-        files = ['dist/${{ matrix.output_name }}']
-        symlinks = { 'Applications': '/Applications' }
-        badge_icon = None
-        icon_size = 128
-        background = None
-        window_rect = ((100, 100), (640, 480))
-        icon_locations = {
             '${{ matrix.output_name }}': (120, 240),
             'Applications': (500, 240)
         }

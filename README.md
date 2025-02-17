@@ -40,11 +40,12 @@ A powerful and user-friendly MQTT client application built with Python and Qt, d
 
 Download the appropriate package for your system from the [latest release](https://github.com/yourusername/Open-MQTT-Broadcaster-4/releases/latest):
 
-- **Windows**: Download and run `mqtt-broadcaster.exe`
-- **macOS**: Download and mount `mqtt-broadcaster.dmg`
+- **Windows**: Download and run `mqtt-broadcaster-VERSION-win.exe`
+- **macOS**: Download and mount `mqtt-broadcaster-VERSION-mac.dmg`
 - **Linux**: 
-  - AppImage: Download `mqtt-broadcaster.AppImage`, make executable and run
-  - Arch Linux: Install with `pacman -U mqtt-broadcaster.pkg.tar.zst`
+  - AppImage: Download `mqtt-broadcaster-VERSION-appimage.AppImage`, make executable (`chmod +x`) and run
+  - Debian/Ubuntu: Install with `sudo dpkg -i mqtt-broadcaster-VERSION-deb.deb`
+  - Arch Linux: Install with `sudo pacman -U mqtt-broadcaster-VERSION-arch.pkg.tar.zst`
 
 ### From Source
 
@@ -125,6 +126,21 @@ The GitHub Actions workflow automatically builds all packages on release.
 
 ## Version History
 
+- 3.0.8: Fixed packaging issues
+  - Improved AppImage creation with proper FUSE handling
+  - Enhanced package metadata for all platforms
+  - Fixed packaging dependencies
+- 3.0.7: Enhanced Arch Linux support
+  - Added proper package metadata
+  - Improved package layout
+  - Added desktop integration
+- 3.0.6: Fixed Arch Linux package creation
+- 3.0.5: Cross-platform build improvements
+- 3.0.4: Improved packaging
+  - Standardized package naming across platforms
+  - Added Debian package support
+  - Enhanced build system reliability
+  - Fixed dependencies for each platform
 - 3.0.3: Multi-platform packaging support
   - Added AppImage for Linux
   - Added DMG for macOS
