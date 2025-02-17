@@ -7,6 +7,7 @@ import json
 import threading
 import time
 import csv
+import socket  # Added socket import for MQTT port scanning
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 from dataclasses import dataclass
@@ -66,6 +67,15 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.resize(1200, 800)
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
+        self.msg_counter_label = QLabel('Sent: 0, Received: 0')
+        self.statusBar.addPermanentWidget(self.msg_counter_label)
+
+        self.sent_count = 0
+        self.received_count = 0
+
+        def update_msg_counter():
+            QTimer.singleShot(0, lambda: self.msg_counter_label.setText(f'Sent: {self.sent_count}, Received: {self.received_count}'))
+        self.update_msg_counter = update_msg_counter
 
         self.message_queue = MessageQueue(self.MAX_MESSAGES)
         self.message_filter: str = ""
@@ -201,12 +211,19 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.check_append_count = QCheckBox('Append Message Counter')
         self.check_append_count.setChecked(False)
         
+        # Replaced Fast Broadcast checkbox with thread slider
+        self.spin_thread_count = QSpinBox()
+        self.spin_thread_count.setRange(1, 100)
+        self.spin_thread_count.setValue(1)
+        self.spin_thread_count.setToolTip('Number of threads to use for broadcasting (1 = sequential)')
+
         broadcast_layout.addRow('Message Count:', self.edit_broadcast_count)
         broadcast_layout.addRow('Message Content:', self.edit_broadcast_message)
         broadcast_layout.addRow('Interval (ms):', self.edit_interval)
         broadcast_layout.addRow('', self.check_single_channel)
         broadcast_layout.addRow('', self.check_append_count)
-        
+        broadcast_layout.addRow('Thread Count:', self.spin_thread_count)  # Added thread slider
+
         self.btn_broadcast = QPushButton('Start Broadcast')
         self.btn_broadcast.clicked.connect(self.start_broadcast)
         broadcast_layout.addRow('', self.btn_broadcast)
@@ -402,33 +419,52 @@ class MQTTBroadcasterWindow(QMainWindow):
         use_single_channel = self.check_single_channel.isChecked()
         append_counter = self.check_append_count.isChecked()
         base_topic = self.edit_topic.text().strip()
+
+        thread_count = self.spin_thread_count.value()
         
-        for i in range(count):
-            try:
-                current_message = f"{message} ({i+1}/{count})" if append_counter else message
-                
-                if use_single_channel:
-                    topic = base_topic
-                else:
-                    # Create numbered channels if not using single channel
-                    topic = f"{base_topic}/{i+1}"
-                
-                self.mqtt.publish(topic, current_message)
-                total_sent += 1
-                self.append_message('Broadcast', f'Sent to {topic}: {current_message}')
-            except Exception as e:
-                logger.error(f'Broadcast error: {e}', exc_info=True)
-                failed += 1
-                self.append_message('Error', f'Failed to send message {i+1}: {str(e)}')
-                
-            # Sleep for the specified interval
-            if interval_ms > 0:
-                time.sleep(interval_ms / 1000.0)
-        
-        self.append_message(
-            'System', 
-            f'Broadcast complete. Total: {count}, Sent: {total_sent}, Failed: {failed}'
-        )
+        if thread_count > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            futures = []
+            with ThreadPoolExecutor(max_workers=thread_count) as executor:
+                for i in range(count):
+                    try:
+                        current_message = f"{message} ({i+1}/{count})" if append_counter else message
+                        topic = base_topic if use_single_channel else f"{base_topic}/{i+1}"
+                        future = executor.submit(self.mqtt.publish, topic, current_message)
+                        futures.append((i, topic, current_message, future))
+                    except Exception as e:
+                        logger.error(f'Broadcast error: {e}', exc_info=True)
+                        failed += 1
+                        self.append_message('Error', f'Failed to send message {i+1}: {str(e)}')
+                for i, topic, current_message, future in futures:
+                    try:
+                        future.result()
+                        total_sent += 1
+                        self.sent_count += 1
+                        self.append_message('Broadcast', f'Sent to {topic}: {current_message}')
+                        self.update_msg_counter()
+                    except Exception as e:
+                        logger.error(f'Broadcast error: {e}', exc_info=True)
+                        failed += 1
+                        self.append_message('Error', f'Failed to send message {i+1}: {str(e)}')
+        else:
+            for i in range(count):
+                try:
+                    current_message = f"{message} ({i+1}/{count})" if append_counter else message
+                    topic = base_topic if use_single_channel else f"{base_topic}/{i+1}"
+                    self.mqtt.publish(topic, current_message)
+                    total_sent += 1
+                    self.sent_count += 1
+                    self.append_message('Broadcast', f'Sent to {topic}: {current_message}')
+                    self.update_msg_counter()
+                except Exception as e:
+                    logger.error(f'Broadcast error: {e}', exc_info=True)
+                    failed += 1
+                    self.append_message('Error', f'Failed to send message {i+1}: {str(e)}')
+                if interval_ms > 0:
+                    time.sleep(interval_ms / 1000.0)
+
+        self.append_message('System', f'Broadcast complete. Total: {count}, Sent: {total_sent}, Failed: {failed}')
 
     def on_message_received(self, msg: Any) -> None:
         """Handle received MQTT messages"""
@@ -456,9 +492,11 @@ class MQTTBroadcasterWindow(QMainWindow):
         if len(self.message_history) > self.MAX_HISTORY:
             self.message_history.pop(0)
             
-        # Use QTimer for thread-safe UI updates
+        # Schedule UI update
         QTimer.singleShot(0, lambda: self.refresh_messages())
         self.update_channel_stats(topic)
+        self.received_count += 1
+        self.update_msg_counter()
 
     def append_message(self, channel: str, message: str, timestamp: str = '') -> None:
         """Append a message to the display"""
@@ -483,11 +521,51 @@ class MQTTBroadcasterWindow(QMainWindow):
         threading.Thread(target=self._thread_scan, daemon=True).start()
 
     def _thread_scan(self) -> None:
-        """Threaded function to scan for MQTT servers"""
-        import random
-        time.sleep(2)
-        servers = [f"192.168.1.{random.randint(2,254)}" for _ in range(3)]
-        QTimer.singleShot(0, lambda: self._handle_scan_results(servers))
+        """Threaded function to scan for MQTT servers using sockets"""
+        from concurrent.futures import ThreadPoolExecutor
+        found_servers = []
+        port_to_scan = 1883
+        
+        # Attempt to get local network base from local IP
+        try:
+            local_ip = socket.gethostbyname(socket.gethostname())
+            base_parts = local_ip.split('.')
+            if len(base_parts) == 4:
+                base = '.'.join(base_parts[:-1]) + '.'
+            else:
+                base = '192.168.1.'
+            ips = [f"{base}{i}" for i in range(1, 255) if f"{base}{i}" != local_ip]
+        except Exception as e:
+            ips = [f"192.168.1.{i}" for i in range(1, 255)]
+        
+        def scan_ip(ip):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.3)
+                result = s.connect_ex((ip, port_to_scan))
+                s.close()
+                if result == 0:
+                    return ip
+            except Exception:
+                pass
+            return None
+        
+        with ThreadPoolExecutor(max_workers=50) as executor:
+            futures = {executor.submit(scan_ip, ip): ip for ip in ips}
+            for future in futures:
+                ip_result = future.result()
+                if ip_result is not None:
+                    found_servers.append(ip_result)
+        
+        # Try to resolve Bambu P1S specifically
+        try:
+            bambu_ip = socket.gethostbyname('bambu-p1s.local')
+            if bambu_ip not in found_servers:
+                found_servers.insert(0, bambu_ip + ' (Bambu P1S)')
+        except Exception:
+            pass
+        
+        QTimer.singleShot(0, lambda: self._handle_scan_results(found_servers))
 
     def _handle_scan_results(self, servers: list) -> None:
         """Handle results of MQTT server scan"""
