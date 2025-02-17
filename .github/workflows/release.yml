@@ -154,48 +154,45 @@ jobs:
       run: |
         VERSION=$(echo "${{ github.ref }}" | sed 's/refs\/tags\/v//')
         
-        # Create PKGBUILD
-        cat > PKGBUILD << EOF
-        # Maintainer: encom
-        pkgname=mqtt-broadcaster
-        pkgver=${VERSION}
-        pkgrel=1
-        pkgdesc="MQTT client for testing and debugging"
-        arch=('x86_64')
-        url="https://github.com/encomjp/Open-MQTT-Broadcaster"
-        license=('MIT')
-        depends=('python' 'python-pyqt6' 'python-paho-mqtt')
-        options=(!strip)
-
-        package() {
-          install -Dm755 dist/${pkgname} "\${pkgdir}/usr/bin/${pkgname}"
-          install -Dm644 README.md "\${pkgdir}/usr/share/doc/${pkgname}/README.md"
-          
-          # Create desktop entry
-          install -Dm644 /dev/null "\${pkgdir}/usr/share/applications/${pkgname}.desktop"
-          cat > "\${pkgdir}/usr/share/applications/${pkgname}.desktop" << EOL
+        # Create package directory structure
+        mkdir -p pkg/usr/bin pkg/usr/share/doc/mqtt-broadcaster pkg/usr/share/applications
+        
+        # Copy files
+        cp dist/${{ matrix.output_name }} pkg/usr/bin/mqtt-broadcaster
+        cp README.md pkg/usr/share/doc/mqtt-broadcaster/
+        chmod +x pkg/usr/bin/mqtt-broadcaster
+        
+        # Create .PKGINFO
+        cat > pkg/.PKGINFO << EOF
+        pkgname = mqtt-broadcaster
+        pkgver = ${VERSION}-1
+        pkgdesc = MQTT client for testing and debugging
+        url = https://github.com/encomjp/Open-MQTT-Broadcaster
+        builddate = $(date +%s)
+        packager = encom
+        size = $(du -bs pkg | cut -f1)
+        arch = x86_64
+        license = MIT
+        depend = python
+        depend = python-pyqt6
+        depend = python-paho-mqtt
+        EOF
+        
+        # Create desktop entry
+        cat > pkg/usr/share/applications/mqtt-broadcaster.desktop << EOF
         [Desktop Entry]
         Name=MQTT Broadcaster
         Comment=MQTT client for testing and debugging
-        Exec=${pkgname}
+        Exec=mqtt-broadcaster
         Icon=network-transmit-receive
         Terminal=false
         Type=Application
         Categories=Network;Qt;
-        EOL
-        }
         EOF
         
-        # Build package
-        mkdir -p pkg/usr/bin
-        cp dist/${{ matrix.output_name }} pkg/usr/bin/mqtt-broadcaster
-        chmod +x pkg/usr/bin/mqtt-broadcaster
-        
-        # Create package
-        tar -czf mqtt-broadcaster-${VERSION}-x86_64.pkg.tar.zst -C pkg .
-        
-        # Move to correct location
-        mv mqtt-broadcaster-${VERSION}-x86_64.pkg.tar.zst mqtt-broadcaster-${VERSION}-arch.pkg.tar.zst
+        # Create package with metadata
+        cd pkg
+        tar --zstd -cf ../mqtt-broadcaster-${VERSION}-arch.pkg.tar.zst .PKGINFO usr/
 
     - name: Set Version (Windows)
       if: runner.os == 'Windows'
