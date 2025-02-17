@@ -10,14 +10,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest, ubuntu-latest]
         include:
           - os: ubuntu-latest
-            output_name: mqtt-broadcaster-linux
+            output_name: mqtt-broadcaster
+            pkg_type: appimage
           - os: windows-latest
-            output_name: mqtt-broadcaster-windows.exe
+            output_name: mqtt-broadcaster
+            pkg_type: exe
           - os: macos-latest
-            output_name: mqtt-broadcaster-macos
+            output_name: mqtt-broadcaster
+            pkg_type: dmg
+          - os: ubuntu-latest
+            output_name: mqtt-broadcaster
+            pkg_type: pkg.tar.zst
 
     steps:
     - uses: actions/checkout@v4
@@ -32,22 +38,87 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pyinstaller
-    
-    - name: Install Linux Dependencies
+
+    - name: Install Linux Build Dependencies
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
         sudo apt-get install -y libxcb-xinerama0 libgl1-mesa-dev
 
+    - name: Install AppImage Dependencies
+      if: matrix.pkg_type == 'appimage'
+      run: |
+        sudo apt-get install -y fuse
+        wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+        chmod +x appimagetool-x86_64.AppImage
+
+    - name: Install Arch Build Dependencies
+      if: matrix.pkg_type == 'pkg.tar.zst'
+      run: |
+        sudo apt-get install -y zstd
+        wget https://github.com/jordansissel/fpm/releases/download/v1.15.1/fpm-1.15.1.deb
+        sudo dpkg -i fpm-1.15.1.deb
+
     - name: Build with PyInstaller
       run: |
         pyinstaller --onefile --windowed --name ${{ matrix.output_name }} qt_mqtt_broadcaster.py
 
+    - name: Create AppImage
+      if: matrix.pkg_type == 'appimage'
+      run: |
+        mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+        cp dist/${{ matrix.output_name }} AppDir/usr/bin/
+        cat > AppDir/usr/share/applications/mqtt-broadcaster.desktop << EOF
+        [Desktop Entry]
+        Name=MQTT Broadcaster
+        Exec=mqtt-broadcaster
+        Icon=mqtt-broadcaster
+        Type=Application
+        Categories=Network;
+        EOF
+        ./appimagetool-x86_64.AppImage AppDir ${{ matrix.output_name }}.AppImage
+
+    - name: Create DMG (macOS)
+      if: matrix.pkg_type == 'dmg'
+      run: |
+        pip install dmgbuild
+        cat > settings.py << EOF
+        from dmgbuild import *
+        format = 'UDBZ'
+        files = ['dist/${{ matrix.output_name }}']
+        symlinks = { 'Applications': '/Applications' }
+        badge_icon = None
+        icon_size = 128
+        EOF
+        dmgbuild -s settings.py "MQTT Broadcaster" "${{ matrix.output_name }}.dmg"
+
+    - name: Create Arch Package
+      if: matrix.pkg_type == 'pkg.tar.zst'
+      run: |
+        VERSION=$(echo "${{ github.ref }}" | sed 's/refs\/tags\/v//')
+        fpm -s dir -t pacman \
+          -n mqtt-broadcaster \
+          -v ${VERSION} \
+          --description "MQTT client for testing and debugging" \
+          --url "https://github.com/encomjp/Open-MQTT-Broadcaster" \
+          --maintainer "encom" \
+          --license "MIT" \
+          --architecture "x86_64" \
+          --depends "python" \
+          --depends "python-pyqt6" \
+          --depends "python-paho-mqtt" \
+          dist/${{ matrix.output_name }}=/usr/bin/mqtt-broadcaster
+
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.output_name }}
-        path: dist/${{ matrix.output_name }}*
+        name: ${{ matrix.output_name }}-${{ matrix.pkg_type }}
+        path: |
+          ${{ matrix.output_name }}.${{ matrix.pkg_type }}
+          dist/${{ matrix.output_name }}.${{ matrix.pkg_type }}
+          *.AppImage
+          *.dmg
+          *.pkg.tar.zst
         retention-days: 5
 
   create_release:
@@ -63,8 +134,17 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          mqtt-broadcaster-linux/mqtt-broadcaster-linux
-          mqtt-broadcaster-windows.exe/mqtt-broadcaster-windows.exe
-          mqtt-broadcaster-macos/mqtt-broadcaster-macos
+          mqtt-broadcaster-appimage/*.AppImage
+          mqtt-broadcaster-exe/*.exe
+          mqtt-broadcaster-dmg/*.dmg
+          mqtt-broadcaster-pkg.tar.zst/*.pkg.tar.zst
+        body: |
+          MQTT Broadcaster ${{ github.ref_name }}
+          
+          Downloads:
+          - Windows: mqtt-broadcaster.exe
+          - macOS: mqtt-broadcaster.dmg
+          - Linux (AppImage): mqtt-broadcaster.AppImage
+          - Arch Linux: mqtt-broadcaster.pkg.tar.zst
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
