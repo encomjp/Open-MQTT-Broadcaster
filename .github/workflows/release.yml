@@ -62,8 +62,14 @@ jobs:
     - name: Install AppImage Tools
       if: matrix.pkg_type == 'appimage'
       run: |
+        sudo apt-get update
+        sudo apt-get install -y fuse libfuse2
         wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
         chmod +x appimagetool-x86_64.AppImage
+        # Extract AppImageTool to avoid FUSE issues
+        ./appimagetool-x86_64.AppImage --appimage-extract
+        sudo mv squashfs-root /opt/appimagetool
+        sudo ln -s /opt/appimagetool/AppRun /usr/local/bin/appimagetool
 
     - name: Build with PyInstaller
       run: |
@@ -127,7 +133,8 @@ jobs:
         </component>
         EOF
         
-        ./appimagetool-x86_64.AppImage AppDir ${{ matrix.output_name }}.AppImage
+        # Use extracted AppImageTool
+        appimagetool AppDir mqtt-broadcaster-${{ github.ref_name }}-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}
 
     - name: Create DMG (macOS)
       if: matrix.pkg_type == 'mac'
