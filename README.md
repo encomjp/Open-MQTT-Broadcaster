@@ -30,11 +30,23 @@ A powerful and user-friendly MQTT client application built with Python and Qt, d
 
 - Python 3.8 or higher
 - Dependencies (automatically installed with pip):
-  - PyQt5 5.15.9 or higher
-  - paho-mqtt 1.6.1 or higher
-  - pytest 8.3.4 (for running tests)
+  - PyQt6 6.4.0 or higher
+  - paho-mqtt 2.0.0 or higher
+  - pytest 8.3.4 (for tests)
 
 ## Installation
+
+### From Packages (Recommended)
+
+Download the appropriate package for your system from the [latest release](https://github.com/yourusername/Open-MQTT-Broadcaster-4/releases/latest):
+
+- **Windows**: Download and run `mqtt-broadcaster.exe`
+- **macOS**: Download and mount `mqtt-broadcaster.dmg`
+- **Linux**: 
+  - AppImage: Download `mqtt-broadcaster.AppImage`, make executable and run
+  - Arch Linux: Install with `pacman -U mqtt-broadcaster.pkg.tar.zst`
+
+### From Source
 
 1. Clone the repository:
 ```bash
@@ -47,12 +59,12 @@ cd Open-MQTT-Broadcaster-4
 pip install -r requirements.txt
 ```
 
-## Usage
-
-Run the application:
+3. Run the application:
 ```bash
 python qt_mqtt_broadcaster.py
 ```
+
+## Usage
 
 ### Basic Operation
 
@@ -95,22 +107,47 @@ python qt_mqtt_broadcaster.py
 pytest Unit_tests/
 ```
 
-## License
+## Building from Source
 
-This project is open source and available under the MIT License.
+To build packages for different platforms:
+
+1. Install PyInstaller:
+```bash
+pip install pyinstaller
+```
+
+2. Build for your platform:
+- Windows: Creates an EXE
+- macOS: Creates a DMG
+- Linux: Creates AppImage and Arch package
+
+The GitHub Actions workflow automatically builds all packages on release.
 
 ## Version History
 
+- 3.0.3: Multi-platform packaging support
+  - Added AppImage for Linux
+  - Added DMG for macOS
+  - Added Arch Linux package
+  - Improved build system
+- 3.0.2: PyQt6 Migration
+  - Updated to PyQt6
+  - Fixed MQTT dependencies
+  - Improved compatibility
 - 3.0: Complete Qt port with enhanced features
   - Modern Qt-based GUI
   - Multi-threaded message broadcasting
   - Network scanning capabilities
   - SSL/TLS support
-  - Improved error handling and user feedback
+  - Improved error handling
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit pull requests.
+
+## License
+
+This project is open source and available under the MIT License.
 
 ## Support
 
