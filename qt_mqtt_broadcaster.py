@@ -11,9 +11,9 @@ from typing import Any, Dict
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel,
-    QLineEdit, QPushButton, QTextEdit, QListWidget, QMessageBox, QGroupBox, QFormLayout, QStatusBar
+    QLineEdit, QComboBox, QPushButton, QTextEdit, QListWidget, QMessageBox, QGroupBox, QFormLayout, QStatusBar
 )
-from PyQt5.QtCore import pyqtSignal, QObject, Qt, QMetaType
+from PyQt5.QtCore import pyqtSignal, QObject, Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
 # Setup logging
@@ -22,12 +22,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger('qt_mqtt_broadcaster')
-
-try:
-    from PyQt5.QtCore import qRegisterMetaType
-    qRegisterMetaType("QTextCursor")
-except Exception as e:
-    logger.warning("Failed to register QTextCursor meta type: " + str(e))
 
 # Import MQTTHandler from the new mqtt_handler module
 from mqtt_handler import MQTTHandler
@@ -48,8 +42,8 @@ class MQTTBroadcasterWindow(QMainWindow):
 
         # Signal emitter for thread-safe UI updates
         self.emitter = MqttSignalEmitter()
-        self.emitter.messageReceived.connect(self.on_message_received)
-        self.emitter.connectionStatus.connect(self.on_connection_status)
+        self.emitter.messageReceived.connect(self.on_message_received, Qt.DirectConnection)
+        self.emitter.connectionStatus.connect(self.on_connection_status, Qt.DirectConnection)
 
         # Initialize MQTTHandler from legacy code
         self.mqtt = MQTTHandler(
@@ -82,10 +76,13 @@ class MQTTBroadcasterWindow(QMainWindow):
         # Connection settings
         conn_group = QGroupBox('MQTT Connection')
         conn_layout = QFormLayout(conn_group)
-        self.edit_host = QLineEdit('localhost')
+        self.combo_host = QComboBox()
+        self.combo_host.setEditable(True)
+        self.combo_host.addItems(["broker.hivemq.com", "test.mosquitto.org", "mqtt.eclipseprojects.io"])
+        self.combo_host.setCurrentText("broker.hivemq.com")
         self.edit_port = QLineEdit('1883')
         self.edit_topic = QLineEdit('test/topic')
-        conn_layout.addRow('Host:', self.edit_host)
+        conn_layout.addRow('Host:', self.combo_host)
         conn_layout.addRow('Port:', self.edit_port)
         conn_layout.addRow('Topic:', self.edit_topic)
         layout.addWidget(conn_group)
@@ -135,7 +132,7 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.tabs.addTab(self.scanner_tab, 'MQTT Scanner')
 
     def connect_to_broker(self) -> None:
-        host = self.edit_host.text().strip()
+        host = self.combo_host.currentText().strip()
         try:
             port = int(self.edit_port.text().strip())
         except ValueError:
@@ -162,6 +159,9 @@ class MQTTBroadcasterWindow(QMainWindow):
             self.show_error('Disconnection Error', str(e))
 
     def on_connection_status(self, is_connected: bool, error: str) -> None:
+        QTimer.singleShot(0, lambda: self._handle_connection_status(is_connected, error))
+
+    def _handle_connection_status(self, is_connected: bool, error: str) -> None:
         if is_connected:
             self.statusBar.showMessage('Connected to broker')
             self.append_message('System', 'Connected to broker')
@@ -203,6 +203,9 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.append_message('System', f'Broadcast complete. Sent: {total_sent}, Failed: {failed}')
 
     def on_message_received(self, msg: Any) -> None:
+        QTimer.singleShot(0, lambda: self._handle_message(msg))
+
+    def _handle_message(self, msg: Any) -> None:
         try:
             topic = msg.topic
             payload = msg.payload.decode() if hasattr(msg.payload, 'decode') else str(msg.payload)
@@ -229,14 +232,16 @@ class MQTTBroadcasterWindow(QMainWindow):
 
     def start_scan(self) -> None:
         self.list_scan_results.clear()
-        self.append_message('System', 'Scanning for MQTT servers...')
+        QTimer.singleShot(0, lambda: self.append_message('System', 'Scanning for MQTT servers...'))
         threading.Thread(target=self._thread_scan, daemon=True).start()
 
     def _thread_scan(self) -> None:
-        # Dummy scan implementation. A real implementation would perform network scanning.
         import random
         time.sleep(2)
         servers = [f"192.168.1.{random.randint(2,254)}" for _ in range(3)]
+        QTimer.singleShot(0, lambda: self._handle_scan_results(servers))
+
+    def _handle_scan_results(self, servers: list) -> None:
         self.list_scan_results.addItems(servers)
         self.append_message('System', f"Scan complete. Found: {', '.join(servers)}")
 
@@ -246,11 +251,11 @@ class MQTTBroadcasterWindow(QMainWindow):
             self.show_error('No Selection', 'Please select a server from the list')
             return
         server_ip = selected_items[0].text()
-        self.edit_host.setText(server_ip)
+        self.combo_host.setCurrentText(server_ip)
         self.connect_to_broker()
 
     def show_error(self, title: str, message: str = '') -> None:
-        QMessageBox.critical(self, title, message)
+        QTimer.singleShot(0, lambda: QMessageBox.critical(self, title, message))
 
     def load_channel_stats(self) -> None:
         try:
