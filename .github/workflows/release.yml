@@ -171,18 +171,44 @@ jobs:
           --depends "python-paho-mqtt" \
           -C pkg .
 
-    - name: Rename and Move Artifacts
+    - name: Set Version (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $env:VERSION = "${{ github.ref_name }}" -replace '^v',''
+        echo "VERSION=$env:VERSION" >> $env:GITHUB_ENV
+
+    - name: Set Version (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
       run: |
         VERSION=$(echo "${{ github.ref }}" | sed 's/refs\/tags\/v//')
-        if [ -f "${{ matrix.output_name }}.${{ matrix.pkg_ext }}" ]; then
-          mv "${{ matrix.output_name }}.${{ matrix.pkg_ext }}" "mqtt-broadcaster-${VERSION}-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}"
-        fi
-        if [ -f "dist/${{ matrix.output_name }}.${{ matrix.pkg_ext }}" ]; then
-          mv "dist/${{ matrix.output_name }}.${{ matrix.pkg_ext }}" "mqtt-broadcaster-${VERSION}-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}"
-        fi
-        if [ -f "mqtt-broadcaster_${VERSION}_amd64.deb" ]; then
-          mv "mqtt-broadcaster_${VERSION}_amd64.deb" "mqtt-broadcaster-${VERSION}-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}"
-        fi
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+    - name: Rename and Move Artifacts (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $files = @(
+          "${{ matrix.output_name }}.${{ matrix.pkg_ext }}",
+          "dist/${{ matrix.output_name }}.${{ matrix.pkg_ext }}",
+          "mqtt-broadcaster_$env:VERSION_amd64.deb"
+        )
+        foreach ($file in $files) {
+          if (Test-Path $file) {
+            Move-Item -Path $file -Destination "mqtt-broadcaster-$env:VERSION-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}" -Force
+          }
+        }
+
+    - name: Rename and Move Artifacts (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        for file in "${{ matrix.output_name }}.${{ matrix.pkg_ext }}" "dist/${{ matrix.output_name }}.${{ matrix.pkg_ext }}" "mqtt-broadcaster_${VERSION}_amd64.deb"; do
+          if [ -f "$file" ]; then
+            mv "$file" "mqtt-broadcaster-${VERSION}-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}"
+          fi
+        done
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
