@@ -18,7 +18,7 @@ from PyQt5.QtGui import QTextCursor
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # changed logging level to DEBUG to show debug messages
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger('qt_mqtt_broadcaster')
@@ -42,8 +42,8 @@ class MQTTBroadcasterWindow(QMainWindow):
 
         # Signal emitter for thread-safe UI updates
         self.emitter = MqttSignalEmitter()
-        self.emitter.messageReceived.connect(self.on_message_received, Qt.DirectConnection)
-        self.emitter.connectionStatus.connect(self.on_connection_status, Qt.DirectConnection)
+        self.emitter.messageReceived.connect(self.on_message_received)  # removed Qt.DirectConnection to use default (queued) connection
+        self.emitter.connectionStatus.connect(self.on_connection_status)  # removed Qt.DirectConnection
 
         # Initialize MQTTHandler from legacy code
         self.mqtt = MQTTHandler(
@@ -139,6 +139,9 @@ class MQTTBroadcasterWindow(QMainWindow):
             self.show_error('Invalid Port', 'Please enter a valid port number.')
             return
         topic = self.edit_topic.text().strip()
+        if not topic:
+            self.show_error('Invalid Topic', 'Please enter a valid topic.')
+            return
 
         self.statusBar.showMessage('Connecting...')
         threading.Thread(target=self._thread_connect, args=(host, port, topic), daemon=True).start()
@@ -208,10 +211,15 @@ class MQTTBroadcasterWindow(QMainWindow):
     def _handle_message(self, msg: Any) -> None:
         try:
             topic = msg.topic
-            payload = msg.payload.decode() if hasattr(msg.payload, 'decode') else str(msg.payload)
+            # check if payload has decode method
+            if hasattr(msg.payload, 'decode'):
+                payload = msg.payload.decode()
+            else:
+                payload = str(msg.payload)
         except Exception as e:
             topic = 'Error'
             payload = f'Error decoding message: {e}'
+            logger.error(f'Error processing message: {e}', exc_info=True)
 
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         self.append_message(topic, payload, timestamp)
@@ -286,4 +294,4 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    main() 
+    main()
