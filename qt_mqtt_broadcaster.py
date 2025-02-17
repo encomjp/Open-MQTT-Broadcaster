@@ -14,13 +14,13 @@ from dataclasses import dataclass
 from queue import Queue
 from pathlib import Path
 
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel,
     QLineEdit, QComboBox, QPushButton, QTextEdit, QListWidget, QMessageBox, QGroupBox, 
     QFormLayout, QStatusBar, QCheckBox, QSpinBox, QFileDialog
 )
-from PyQt5.QtCore import pyqtSignal, QObject, Qt, QTimer
-from PyQt5.QtGui import QTextCursor, QColor, QIntValidator
+from PyQt6.QtCore import pyqtSignal, QObject, Qt, QTimer
+from PyQt6.QtGui import QTextCursor, QColor, QIntValidator
 
 # Setup logging
 logging.basicConfig(
@@ -671,7 +671,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     window = MQTTBroadcasterWindow()
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == '__main__':

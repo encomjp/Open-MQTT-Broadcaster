@@ -29,7 +29,7 @@ class MQTTHandler:
     
     def __init__(self, message_callback: Callable, connection_callback: Callable, disconnection_callback: Callable):
         """Initialize MQTT handler with callbacks"""
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv5)
+        self.client = mqtt.Client(protocol=mqtt.MQTTv5)
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_disconnect = self._on_disconnect
@@ -154,7 +154,7 @@ class MQTTHandler:
         except Exception as e:
             logger.error(f"Message handling error: {e}")
 
-    def _on_disconnect(self, client: mqtt.Client, userdata: Any, disconnect_flags: dict, rc: int, properties: Any = None) -> None:
+    def _on_disconnect(self, client: mqtt.Client, userdata: Any, rc: int, properties: Any = None) -> None:
         """Handle disconnection"""
         self.is_connected = False
         if rc != 0 and self.config and self.config.auto_reconnect:
