@@ -6,18 +6,20 @@ import logging
 import json
 import threading
 import time
+import csv
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 from dataclasses import dataclass
 from queue import Queue
+from pathlib import Path
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel,
     QLineEdit, QComboBox, QPushButton, QTextEdit, QListWidget, QMessageBox, QGroupBox, 
-    QFormLayout, QStatusBar, QCheckBox
+    QFormLayout, QStatusBar, QCheckBox, QSpinBox, QFileDialog
 )
 from PyQt5.QtCore import pyqtSignal, QObject, Qt, QTimer
-from PyQt5.QtGui import QTextCursor
+from PyQt5.QtGui import QTextCursor, QColor, QIntValidator
 
 # Setup logging
 logging.basicConfig(
@@ -26,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger('qt_mqtt_broadcaster')
 
-from mqtt_handler import MQTTHandler
+from mqtt_handler import MQTTHandler, MQTTConfig
 
 @dataclass
 class MQTTMessage:
@@ -86,6 +88,18 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.stats_file: str = "channel_stats.json"
         self.load_channel_stats()
 
+        # Add SSL settings
+        self.ssl_settings = {
+            'use_ssl': False,
+            'ca_certs': '',
+            'certfile': '',
+            'keyfile': ''
+        }
+        
+        # Add message history
+        self.message_history: List[MQTTMessage] = []
+        self.MAX_HISTORY = 10000
+
         # Main layout and tabs
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -96,6 +110,7 @@ class MQTTBroadcasterWindow(QMainWindow):
 
         self.create_broadcaster_tab()
         self.create_scanner_tab()
+        self.create_settings_tab()
 
     def create_broadcaster_tab(self) -> None:
         """Create the broadcaster tab with all its widgets"""
@@ -116,9 +131,20 @@ class MQTTBroadcasterWindow(QMainWindow):
         
         self.edit_topic = QLineEdit('test/topic')
         
+        self.spin_qos = QSpinBox()
+        self.spin_qos.setRange(0, 2)
+        self.spin_qos.setToolTip("QoS Level (0-2)")
+        
+        self.check_retain = QCheckBox("Retain Messages")
+        self.check_auto_reconnect = QCheckBox("Auto Reconnect")
+        self.check_auto_reconnect.setChecked(True)
+        
         conn_layout.addRow('Host:', self.combo_host)
         conn_layout.addRow('Port:', self.edit_port)
         conn_layout.addRow('Topic:', self.edit_topic)
+        conn_layout.addRow('QoS:', self.spin_qos)
+        conn_layout.addRow('', self.check_retain)
+        conn_layout.addRow('', self.check_auto_reconnect)
         layout.addWidget(conn_group)
 
         # Message filter
@@ -142,13 +168,47 @@ class MQTTBroadcasterWindow(QMainWindow):
         btn_layout.addWidget(self.btn_clear)
         layout.addLayout(btn_layout)
 
+        # Wildcard subscription
+        wildcard_group = QGroupBox('Topic Subscriptions')
+        wildcard_layout = QFormLayout(wildcard_group)
+        self.edit_wildcard = QLineEdit()
+        self.edit_wildcard.setPlaceholderText('Example: sensor/#')
+        self.btn_subscribe = QPushButton('Subscribe')
+        self.btn_subscribe.clicked.connect(self.subscribe_to_topic)
+        wildcard_layout.addRow('Topic:', self.edit_wildcard)
+        wildcard_layout.addRow('', self.btn_subscribe)
+        layout.addWidget(wildcard_group)
+
         # Broadcast controls
         broadcast_group = QGroupBox('Broadcast')
         broadcast_layout = QFormLayout(broadcast_group)
+        
         self.edit_broadcast_count = QLineEdit('10')
+        self.edit_broadcast_count.setValidator(QIntValidator(1, 100000))
+        self.edit_broadcast_count.setPlaceholderText('Number of messages to send')
+        
+        self.edit_broadcast_message = QTextEdit()
+        self.edit_broadcast_message.setPlaceholderText('Enter message content here')
+        self.edit_broadcast_message.setMaximumHeight(100)
+        
+        self.check_single_channel = QCheckBox('Use Single Channel')
+        self.check_single_channel.setToolTip('When checked, all messages will be sent to the same channel')
+        
+        self.edit_interval = QLineEdit('100')
+        self.edit_interval.setValidator(QIntValidator(0, 10000))
+        self.edit_interval.setPlaceholderText('Delay between messages (ms)')
+        
+        self.check_append_count = QCheckBox('Append Message Counter')
+        self.check_append_count.setChecked(False)
+        
+        broadcast_layout.addRow('Message Count:', self.edit_broadcast_count)
+        broadcast_layout.addRow('Message Content:', self.edit_broadcast_message)
+        broadcast_layout.addRow('Interval (ms):', self.edit_interval)
+        broadcast_layout.addRow('', self.check_single_channel)
+        broadcast_layout.addRow('', self.check_append_count)
+        
         self.btn_broadcast = QPushButton('Start Broadcast')
         self.btn_broadcast.clicked.connect(self.start_broadcast)
-        broadcast_layout.addRow('Message Count:', self.edit_broadcast_count)
         broadcast_layout.addRow('', self.btn_broadcast)
         layout.addWidget(broadcast_group)
 
@@ -156,6 +216,11 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.text_messages = QTextEdit()
         self.text_messages.setReadOnly(True)
         layout.addWidget(self.text_messages)
+
+        # Export button
+        self.btn_export = QPushButton('Export Messages')
+        self.btn_export.clicked.connect(self.export_messages)
+        layout.addWidget(self.btn_export)
 
         self.tabs.addTab(self.broadcaster_tab, 'Broadcaster')
 
@@ -177,8 +242,71 @@ class MQTTBroadcasterWindow(QMainWindow):
 
         self.tabs.addTab(self.scanner_tab, 'MQTT Scanner')
 
+    def create_settings_tab(self) -> None:
+        """Create the settings tab for SSL/TLS configuration"""
+        self.settings_tab = QWidget()
+        layout = QVBoxLayout(self.settings_tab)
+
+        ssl_group = QGroupBox('SSL/TLS Settings')
+        ssl_layout = QFormLayout(ssl_group)
+
+        self.check_use_ssl = QCheckBox('Enable SSL/TLS')
+        self.check_use_ssl.stateChanged.connect(self.update_ssl_state)
+
+        self.edit_ca_certs = QLineEdit()
+        self.btn_ca_certs = QPushButton('Browse')
+        self.btn_ca_certs.clicked.connect(lambda: self.browse_file('ca_certs'))
+        ca_layout = QHBoxLayout()
+        ca_layout.addWidget(self.edit_ca_certs)
+        ca_layout.addWidget(self.btn_ca_certs)
+
+        self.edit_certfile = QLineEdit()
+        self.btn_certfile = QPushButton('Browse')
+        self.btn_certfile.clicked.connect(lambda: self.browse_file('certfile'))
+        cert_layout = QHBoxLayout()
+        cert_layout.addWidget(self.edit_certfile)
+        cert_layout.addWidget(self.btn_certfile)
+
+        self.edit_keyfile = QLineEdit()
+        self.btn_keyfile = QPushButton('Browse')
+        self.btn_keyfile.clicked.connect(lambda: self.browse_file('keyfile'))
+        key_layout = QHBoxLayout()
+        key_layout.addWidget(self.edit_keyfile)
+        key_layout.addWidget(self.btn_keyfile)
+
+        ssl_layout.addRow('', self.check_use_ssl)
+        ssl_layout.addRow('CA Certificates:', ca_layout)
+        ssl_layout.addRow('Client Certificate:', cert_layout)
+        ssl_layout.addRow('Client Key:', key_layout)
+        
+        layout.addWidget(ssl_group)
+        self.tabs.addTab(self.settings_tab, 'Settings')
+
+    def update_ssl_state(self, state: int) -> None:
+        """Update SSL/TLS settings state"""
+        enabled = bool(state)
+        self.edit_ca_certs.setEnabled(enabled)
+        self.btn_ca_certs.setEnabled(enabled)
+        self.edit_certfile.setEnabled(enabled)
+        self.btn_certfile.setEnabled(enabled)
+        self.edit_keyfile.setEnabled(enabled)
+        self.btn_keyfile.setEnabled(enabled)
+        self.ssl_settings['use_ssl'] = enabled
+
+    def browse_file(self, setting_name: str) -> None:
+        """Browse for SSL/TLS certificate files"""
+        file_path, _ = QFileDialog.getOpenFileName(self, f'Select {setting_name} file')
+        if file_path:
+            if setting_name == 'ca_certs':
+                self.edit_ca_certs.setText(file_path)
+            elif setting_name == 'certfile':
+                self.edit_certfile.setText(file_path)
+            elif setting_name == 'keyfile':
+                self.edit_keyfile.setText(file_path)
+            self.ssl_settings[setting_name] = file_path
+
     def connect_to_broker(self) -> None:
-        """Connect to the specified MQTT broker"""
+        """Connect to the specified MQTT broker with current settings"""
         host = self.combo_host.currentText().strip()
         try:
             port = int(self.edit_port.text().strip())
@@ -190,13 +318,27 @@ class MQTTBroadcasterWindow(QMainWindow):
             self.show_error('Invalid Topic', 'Please enter a valid topic.')
             return
 
-        self.statusBar.showMessage('Connecting...')
-        threading.Thread(target=self._thread_connect, args=(host, port, topic), daemon=True).start()
+        config = MQTTConfig(
+            host=host,
+            port=port,
+            protocol='tcp',
+            topic=topic,
+            qos=self.spin_qos.value(),
+            retain=self.check_retain.isChecked(),
+            use_ssl=self.ssl_settings['use_ssl'],
+            ca_certs=self.ssl_settings['ca_certs'] or None,
+            certfile=self.ssl_settings['certfile'] or None,
+            keyfile=self.ssl_settings['keyfile'] or None,
+            auto_reconnect=self.check_auto_reconnect.isChecked()
+        )
 
-    def _thread_connect(self, host: str, port: int, topic: str) -> None:
+        self.statusBar.showMessage('Connecting...')
+        threading.Thread(target=self._thread_connect, args=(config,), daemon=True).start()
+
+    def _thread_connect(self, config: MQTTConfig) -> None:
         """Threaded function to connect to the MQTT broker"""
         try:
-            self.mqtt.connect(host, port, 'tcp', topic)
+            self.mqtt.connect(config)
         except Exception as e:
             logger.error(f'Connection error: {e}', exc_info=True)
             self.emitter.connectionStatus.emit(False, str(e))
@@ -234,30 +376,59 @@ class MQTTBroadcasterWindow(QMainWindow):
         if not getattr(self.mqtt, 'is_connected', False):
             self.show_error('Not Connected', 'Please connect to a broker first')
             return
+            
         try:
             count = int(self.edit_broadcast_count.text().strip())
+            interval = int(self.edit_interval.text().strip())
         except ValueError:
-            self.show_error('Invalid Broadcast Count', 'Please enter a valid number for broadcast count.')
+            self.show_error('Invalid Input', 'Please enter valid numbers for count and interval.')
             return
 
-        threading.Thread(target=self._thread_broadcast, args=(count,), daemon=True).start()
+        message = self.edit_broadcast_message.toPlainText().strip()
+        if not message:
+            self.show_error('Empty Message', 'Please enter a message to broadcast.')
+            return
 
-    def _thread_broadcast(self, count: int) -> None:
+        threading.Thread(
+            target=self._thread_broadcast, 
+            args=(count, message, interval), 
+            daemon=True
+        ).start()
+
+    def _thread_broadcast(self, count: int, message: str, interval_ms: int) -> None:
         """Threaded function to broadcast messages"""
         total_sent = 0
         failed = 0
-        message = 'Broadcast message'
+        use_single_channel = self.check_single_channel.isChecked()
+        append_counter = self.check_append_count.isChecked()
+        base_topic = self.edit_topic.text().strip()
+        
         for i in range(count):
             try:
-                self.mqtt.publish(self.edit_topic.text().strip(), f'{message} {i+1}')
+                current_message = f"{message} ({i+1}/{count})" if append_counter else message
+                
+                if use_single_channel:
+                    topic = base_topic
+                else:
+                    # Create numbered channels if not using single channel
+                    topic = f"{base_topic}/{i+1}"
+                
+                self.mqtt.publish(topic, current_message)
                 total_sent += 1
-                self.append_message('Broadcast', f'Sent: {message} {i+1}')
+                self.append_message('Broadcast', f'Sent to {topic}: {current_message}')
             except Exception as e:
                 logger.error(f'Broadcast error: {e}', exc_info=True)
                 failed += 1
-                self.append_message('Error', f'Failed to send: {message} {i+1}')
-            time.sleep(0.1)  # Delay between messages
-        self.append_message('System', f'Broadcast complete. Sent: {total_sent}, Failed: {failed}')
+                self.append_message('Error', f'Failed to send message {i+1}: {str(e)}')
+                
+            # Sleep for the specified interval
+            if interval_ms > 0:
+                time.sleep(interval_ms / 1000.0)
+        
+        self.append_message(
+            'System', 
+            f'Broadcast complete. Total: {count}, Sent: {total_sent}, Failed: {failed}'
+        )
 
     def on_message_received(self, msg: Any) -> None:
         """Handle received MQTT messages"""
@@ -267,7 +438,6 @@ class MQTTBroadcasterWindow(QMainWindow):
         """Process and display received MQTT messages"""
         try:
             topic = msg.topic
-            # check if payload has decode method
             if hasattr(msg.payload, 'decode'):
                 payload = msg.payload.decode()
             else:
@@ -280,14 +450,22 @@ class MQTTBroadcasterWindow(QMainWindow):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         mqtt_message = MQTTMessage(topic, payload, timestamp)
         self.message_queue.add_message(mqtt_message)
-        self.refresh_messages()
+        
+        # Add to history
+        self.message_history.append(mqtt_message)
+        if len(self.message_history) > self.MAX_HISTORY:
+            self.message_history.pop(0)
+            
+        # Use QTimer for thread-safe UI updates
+        QTimer.singleShot(0, lambda: self.refresh_messages())
         self.update_channel_stats(topic)
 
     def append_message(self, channel: str, message: str, timestamp: str = '') -> None:
         """Append a message to the display"""
         if not timestamp:
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        self.text_messages.append(f'[{timestamp}] {channel}: {message}')
+        # Use QTimer to safely update text from any thread
+        QTimer.singleShot(0, lambda: self.text_messages.append(f'[{timestamp}] {channel}: {message}'))
 
     def update_channel_stats(self, channel: str) -> None:
         """Update statistics for received messages"""
@@ -326,6 +504,41 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.combo_host.setCurrentText(server_ip)
         self.connect_to_broker()
 
+    def subscribe_to_topic(self) -> None:
+        """Subscribe to a topic with wildcards"""
+        if not self.mqtt.is_connected:
+            self.show_error('Not Connected', 'Please connect to a broker first')
+            return
+            
+        topic = self.edit_wildcard.text().strip()
+        if not topic:
+            self.show_error('Invalid Topic', 'Please enter a valid topic')
+            return
+            
+        try:
+            self.mqtt.subscribe(topic, qos=self.spin_qos.value())
+            self.append_message('System', f'Subscribed to topic: {topic}')
+        except Exception as e:
+            self.show_error('Subscribe Error', str(e))
+
+    def export_messages(self) -> None:
+        """Export message history to CSV"""
+        file_path, _ = QFileDialog.getSaveFileName(self, 'Export Messages', '', 'CSV Files (*.csv)')
+        if not file_path:
+            return
+            
+        try:
+            with open(file_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Timestamp', 'Topic', 'Payload'])
+                with self.message_queue.lock:
+                    messages = list(self.message_queue.queue.queue)
+                for msg in messages:
+                    writer.writerow([msg.timestamp, msg.topic, msg.payload])
+            self.statusBar.showMessage(f'Messages exported to {file_path}')
+        except Exception as e:
+            self.show_error('Export Error', str(e))
+
     def show_error(self, title: str, message: str = '') -> None:
         """Show an error message box"""
         QTimer.singleShot(0, lambda: QMessageBox.critical(self, title, message))
@@ -352,6 +565,27 @@ class MQTTBroadcasterWindow(QMainWindow):
         """Handle window close event"""
         self.save_channel_stats()
         event.accept()
+
+    def update_message_filter(self, filter_text: str) -> None:
+        """Update the message filter and refresh displayed messages"""
+        self.message_filter = filter_text
+        self.refresh_messages()
+
+    def refresh_messages(self) -> None:
+        """Refresh the displayed messages based on current filter"""
+        self.text_messages.clear()
+        with self.message_queue.lock:
+            messages = list(self.message_queue.queue.queue)
+        for msg in messages:
+            if not self.message_filter or self.message_filter.lower() in msg.topic.lower():
+                self.text_messages.append(f'[{msg.timestamp}] {msg.topic}: {msg.payload}')
+
+    def clear_messages(self) -> None:
+        """Clear all displayed messages"""
+        self.text_messages.clear()
+        with self.message_queue.lock:
+            self.message_queue.queue.queue.clear()
+        self.message_history.clear()
 
 
 def main() -> None:

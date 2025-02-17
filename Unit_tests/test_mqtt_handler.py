@@ -63,10 +63,10 @@ class TestMQTTHandler(unittest.TestCase):
     def test_disconnect_callback(self):
         # First, simulate a successful connection, then disconnect
         self.handler._on_connect(None, None, None, 0)
-        self.handler._on_disconnect(None, None, 0)
+        self.handler._on_disconnect(None, None, {}, 0)  # Updated to match new API
         self.assertFalse(self.handler.is_connected)
         self.assertEqual(len(self.callback.disconnections), 1)
 
 
 if __name__ == '__main__':
-    unittest.main() 
+    unittest.main()

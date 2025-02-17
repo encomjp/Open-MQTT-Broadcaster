@@ -1,6 +1,6 @@
 import unittest
 import time
-from mqtt_handler import MQTTHandler
+from mqtt_handler import MQTTHandler, MQTTConfig
 
 
 class DummyCallback:
@@ -35,8 +35,17 @@ class TestMQTTIntegration(unittest.TestCase):
             pass
 
     def test_connect_publish_disconnect(self):
-        # Connect to HiveMQ public broker
-        self.handler.connect("broker.hivemq.com", 1883, "tcp", "unittest/test")
+        # Create config for HiveMQ public broker
+        config = MQTTConfig(
+            host="broker.hivemq.com",
+            port=1883,
+            protocol="tcp",
+            topic="unittest/test"
+        )
+        
+        # Connect using the config object
+        self.handler.connect(config)
+
         # Wait for connection to be established
         timeout = 20  # seconds
         start = time.time()
@@ -62,4 +71,4 @@ class TestMQTTIntegration(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main() 
+    unittest.main()
