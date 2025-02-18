@@ -65,7 +65,12 @@ jobs:
 
     - name: Build with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --name ${{ matrix.output_name }} --add-data "README.md:." --hidden-import=PyQt6.sip qt_mqtt_broadcaster.py
+        pyinstaller --onefile --windowed \
+          --name ${{ matrix.output_name }} \
+          --add-data "README.md:." \
+          --hidden-import=PyQt6.sip \
+          --hidden-import=paho.mqtt.client \
+          qt_mqtt_broadcaster.py
 
     - name: Install Additional Dependencies (Windows)
       if: runner.os == 'Windows'
@@ -114,42 +119,12 @@ jobs:
     - name: Create AppImage
       if: matrix.pkg_type == 'appimage'
       run: |
-        sudo apt-get update && sudo apt-get install -y imagemagick
-        # Create AppDir structure
-        mkdir -p AppDir/usr/{bin,share/{applications,icons/hicolor/256x256/apps,metainfo}}
-        
-        # Copy executable
+        # Create proper AppDir structure
+        mkdir -p AppDir/usr/{bin,share/{applications,icons/hicolor/256x256/apps}}
         cp dist/${{ matrix.output_name }} AppDir/usr/bin/
         chmod +x AppDir/usr/bin/${{ matrix.output_name }}
         
-        # Create AppRun script
-        cat > AppDir/AppRun << 'EOF'
-        #!/bin/sh
-        SELF=$(readlink -f "$0")
-        HERE=${SELF%/*}
-        export PATH="${HERE}/usr/bin:${PATH}"
-        export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
-        exec "${HERE}/usr/bin/${{ matrix.output_name }}" "$@"
-        EOF
-        chmod +x AppDir/AppRun
-        
-        # Create desktop entry
-        cat > AppDir/mqtt-broadcaster.desktop << EOF
-        [Desktop Entry]
-        Name=MQTT Broadcaster
-        Exec=mqtt-broadcaster
-        Icon=mqtt-broadcaster
-        Type=Application
-        Categories=Network;Qt;
-        Comment=MQTT client for testing and debugging
-        EOF
-        cp AppDir/mqtt-broadcaster.desktop AppDir/usr/share/applications/
-        
-        # Create a simple icon (you may want to replace this with a proper icon)
-        convert -size 256x256 xc:transparent -font DejaVu-Sans -pointsize 24 -gravity center -draw "text 0,0 'MQTT'" -draw "text 0,30 'Broadcaster'" AppDir/usr/share/icons/hicolor/256x256/apps/mqtt-broadcaster.png
-        cp AppDir/usr/share/icons/hicolor/256x256/apps/mqtt-broadcaster.png AppDir/mqtt-broadcaster.png
-        
-        # Create AppStream metadata
+        # Generate valid AppStream metadata
         cat > AppDir/usr/share/metainfo/mqtt-broadcaster.appdata.xml << EOF
         <?xml version="1.0" encoding="UTF-8"?>
         <component type="desktop-application">
@@ -165,57 +140,11 @@ jobs:
             <category>Network</category>
             <category>Qt</category>
           </categories>
-          <releases>
-            '${{ matrix.output_name }}': (120, 240),
-            'Applications': (500, 240)
-        }
-        EOF
-        dmgbuild -s settings.py "MQTT Broadcaster" "${{ matrix.output_name }}.dmg"
-
-    - name: Create Arch Package
-      if: matrix.pkg_type == 'arch'
-      run: |
-        VERSION=$(echo "${{ github.ref }}" | sed 's/refs\/tags\/v//')
-        
-        # Create package directory structure
-        mkdir -p pkg/usr/bin pkg/usr/share/doc/mqtt-broadcaster pkg/usr/share/applications
-        
-        # Copy files
-        cp dist/${{ matrix.output_name }} pkg/usr/bin/mqtt-broadcaster
-        cp README.md pkg/usr/share/doc/mqtt-broadcaster/
-        chmod +x pkg/usr/bin/mqtt-broadcaster
-        
-        # Create .PKGINFO
-        cat > pkg/.PKGINFO << EOF
-        pkgname = mqtt-broadcaster
-        pkgver = ${VERSION}-1
-        pkgdesc = MQTT client for testing and debugging
-        url = https://github.com/encomjp/Open-MQTT-Broadcaster
-        builddate = $(date +%s)
-        packager = encom
-        size = $(du -bs pkg | cut -f1)
-        arch = x86_64
-        license = MIT
-        depend = python
-        depend = python-pyqt6
-        depend = python-paho-mqtt
+        </component>
         EOF
         
-        # Create desktop entry
-        cat > pkg/usr/share/applications/mqtt-broadcaster.desktop << EOF
-        [Desktop Entry]
-        Name=MQTT Broadcaster
-        Comment=MQTT client for testing and debugging
-        Exec=mqtt-broadcaster
-        Icon=network-transmit-receive
-        Terminal=false
-        Type=Application
-        Categories=Network;Qt;
-        EOF
-        
-        # Create package with metadata
-        cd pkg
-        tar --zstd -cf ../mqtt-broadcaster-${VERSION}-arch.pkg.tar.zst .PKGINFO usr/
+        # Build AppImage
+        appimagetool AppDir mqtt-broadcaster-${{ env.VERSION }}-${{ matrix.pkg_type }}.AppImage
 
     - name: Set Version (Windows)
       if: runner.os == 'Windows'
@@ -231,36 +160,9 @@ jobs:
         VERSION=$(echo "${{ github.ref }}" | sed 's/refs\/tags\/v//')
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-    - name: Rename and Move Artifacts (Windows)
-      if: runner.os == 'Windows'
-      shell: pwsh
+    - name: Rename and Move Artifacts
       run: |
-        $files = @(
-          "${{ matrix.output_name }}.${{ matrix.pkg_ext }}",
-          "dist/${{ matrix.output_name }}.${{ matrix.pkg_ext }}",
-          "mqtt-broadcaster_$env:VERSION_amd64.deb"
-        )
-        foreach ($file in $files) {
-          if (Test-Path $file) {
-            Move-Item -Path $file -Destination "mqtt-broadcaster-$env:VERSION-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}" -Force
-          }
-        }
-
-    - name: Rename and Move Artifacts (Unix)
-      if: runner.os != 'Windows'
-      shell: bash
-      run: |
-        if [ "${{ matrix.pkg_type }}" = "deb" ]; then
-          if [ -f "mqtt-broadcaster_${VERSION}_amd64.deb" ]; then
-            mv "mqtt-broadcaster_${VERSION}_amd64.deb" "mqtt-broadcaster-${VERSION}-deb.deb"
-          fi
-        else
-          for file in "${{ matrix.output_name }}.${{ matrix.pkg_ext }}" "dist/${{ matrix.output_name }}.${{ matrix.pkg_ext }}"; do
-            if [ -f "$file" ]; then
-              mv "$file" "mqtt-broadcaster-${VERSION}-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}"
-            fi
-          done
-        fi
+        mv dist/${{ matrix.output_name }} mqtt-broadcaster-${{ env.VERSION }}-${{ matrix.pkg_type }}.${{ matrix.pkg_ext }}
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
@@ -282,21 +184,17 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          mqtt-broadcaster-${{ github.ref_name }}-appimage.AppImage
-          mqtt-broadcaster-${{ github.ref_name }}-win.exe
-          mqtt-broadcaster-${{ github.ref_name }}-mac.dmg
-          mqtt-broadcaster-${{ github.ref_name }}-arch.pkg.tar.zst
-          mqtt-broadcaster-${{ github.ref_name }}-deb.deb
+          mqtt-broadcaster-${{ env.VERSION }}-appimage.AppImage
+          mqtt-broadcaster-${{ env.VERSION }}-win.exe
+          mqtt-broadcaster-${{ env.VERSION }}-mac.dmg
         body: |
-          MQTT Broadcaster ${{ github.ref_name }}
+          MQTT Broadcaster ${{ env.VERSION }}
           
           Downloads:
-          - Windows: mqtt-broadcaster-${{ github.ref_name }}-win.exe
-          - macOS: mqtt-broadcaster-${{ github.ref_name }}-mac.dmg
+          - Windows: mqtt-broadcaster-${{ env.VERSION }}-win.exe
+          - macOS: mqtt-broadcaster-${{ env.VERSION }}-mac.dmg
           - Linux:
-            - AppImage: mqtt-broadcaster-${{ github.ref_name }}-appimage.AppImage
-            - Debian/Ubuntu: mqtt-broadcaster-${{ github.ref_name }}-deb.deb
-            - Arch Linux: mqtt-broadcaster-${{ github.ref_name }}-arch.pkg.tar.zst
+            - AppImage: mqtt-broadcaster-${{ env.VERSION }}-appimage.AppImage
           
           ### Installation
           
@@ -310,7 +208,5 @@ jobs:
           
           #### Linux
           - AppImage: Download, make executable (`chmod +x`) and run
-          - Debian/Ubuntu: `sudo dpkg -i mqtt-broadcaster-*.deb`
-          - Arch Linux: `sudo pacman -U mqtt-broadcaster-*.pkg.tar.zst`
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

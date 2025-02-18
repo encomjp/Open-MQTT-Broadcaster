@@ -68,8 +68,13 @@ class MQTTHandler:
             
         try:
             if self.config.protocol == 'ws':
-                self.client.ws_set_options(path="/mqtt")
-            self.client.connect(self.config.host, self.config.port, keepalive=60)
+                self.client.ws_set_options(path="/mqtt", headers=None)
+                transport = "websockets"
+            else:
+                transport = "tcp"
+            
+            self.client.connect(self.config.host, self.config.port, keepalive=60, bind_address="", bind_port=0, 
+                              clean_start=mqtt.MQTT_CLEAN_START_FIRST_ONLY, properties=None, transport=transport)
             self.client.loop_start()
         except Exception as e:
             logger.error(f"Connection error: {e}")
