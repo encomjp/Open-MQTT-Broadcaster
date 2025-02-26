@@ -1,7 +1,10 @@
 import os
-os.environ['QT_QPA_PLATFORM'] = 'xcb'
-
 import sys
+
+# Only set XCB platform on Linux
+if sys.platform.startswith('linux'):
+    os.environ['QT_QPA_PLATFORM'] = 'xcb'
+
 import logging
 import json
 import threading
@@ -9,18 +12,20 @@ import time
 import csv
 import socket  # Added socket import for MQTT port scanning
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass
 from queue import Queue
 from pathlib import Path
+import paho.mqtt.client as mqtt  # Added direct import of mqtt
 
-from PyQt6.QtWidgets import (
+# Change from PyQt6 to PyQt5
+from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel,
     QLineEdit, QComboBox, QPushButton, QTextEdit, QListWidget, QMessageBox, QGroupBox, 
     QFormLayout, QStatusBar, QCheckBox, QSpinBox, QFileDialog
 )
-from PyQt6.QtCore import pyqtSignal, QObject, Qt, QTimer
-from PyQt6.QtGui import QTextCursor, QColor, QIntValidator
+from PyQt5.QtCore import pyqtSignal, QObject, Qt, QTimer
+from PyQt5.QtGui import QTextCursor, QColor, QIntValidator
 
 # Setup logging
 logging.basicConfig(
@@ -67,6 +72,14 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.resize(1200, 800)
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
+        
+        # Add connection status indicator
+        self.connection_indicator = QLabel('•')
+        self.connection_indicator.setStyleSheet('color: red; font-size: 24px;')
+        self.connection_indicator.setToolTip('Disconnected')
+        self.statusBar.addWidget(self.connection_indicator)
+        
+        # Message counter
         self.msg_counter_label = QLabel('Sent: 0, Received: 0')
         self.statusBar.addPermanentWidget(self.msg_counter_label)
 
@@ -96,6 +109,7 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.channel_stats: Dict[str, int] = {}
         self.channels: Set[str] = set()
         self.stats_file: str = "channel_stats.json"
+        self.subscriptions_file: str = "mqtt_subscriptions.json"
         self.load_channel_stats()
 
         # Add SSL settings
@@ -110,6 +124,20 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.message_history: List[MQTTMessage] = []
         self.MAX_HISTORY = 10000
 
+        # Add color mapping for topics
+        self.topic_colors = {}
+        self.next_color_index = 0
+        self.color_palette = [
+            QColor("#4285F4"),  # Blue
+            QColor("#DB4437"),  # Red
+            QColor("#F4B400"),  # Yellow
+            QColor("#0F9D58"),  # Green
+            QColor("#9C27B0"),  # Purple
+            QColor("#FF6D00"),  # Orange
+            QColor("#795548"),  # Brown
+            QColor("#607D8B"),  # Gray
+        ]
+
         # Main layout and tabs
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -121,6 +149,9 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.create_broadcaster_tab()
         self.create_scanner_tab()
         self.create_settings_tab()
+        
+        # Load subscriptions after UI is created
+        self.load_subscriptions()
 
     def create_broadcaster_tab(self) -> None:
         """Create the broadcaster tab with all its widgets"""
@@ -139,6 +170,13 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.edit_port = QLineEdit('1883')
         self.edit_port.setValidator(QIntValidator(1, 65535))
         
+        # Add username and password fields
+        self.edit_username = QLineEdit()
+        self.edit_username.setPlaceholderText('Optional')
+        self.edit_password = QLineEdit()
+        self.edit_password.setPlaceholderText('Optional')
+        self.edit_password.setEchoMode(QLineEdit.Password)
+        
         self.edit_topic = QLineEdit('test/topic')
         
         self.spin_qos = QSpinBox()
@@ -151,6 +189,8 @@ class MQTTBroadcasterWindow(QMainWindow):
         
         conn_layout.addRow('Host:', self.combo_host)
         conn_layout.addRow('Port:', self.edit_port)
+        conn_layout.addRow('Username:', self.edit_username)
+        conn_layout.addRow('Password:', self.edit_password)
         conn_layout.addRow('Topic:', self.edit_topic)
         conn_layout.addRow('QoS:', self.spin_qos)
         conn_layout.addRow('', self.check_retain)
@@ -183,10 +223,25 @@ class MQTTBroadcasterWindow(QMainWindow):
         wildcard_layout = QFormLayout(wildcard_group)
         self.edit_wildcard = QLineEdit()
         self.edit_wildcard.setPlaceholderText('Example: sensor/#')
+        
+        # Add a horizontal layout for subscribe/unsubscribe buttons
+        sub_btn_layout = QHBoxLayout()
         self.btn_subscribe = QPushButton('Subscribe')
         self.btn_subscribe.clicked.connect(self.subscribe_to_topic)
+        self.btn_unsubscribe = QPushButton('Unsubscribe')
+        self.btn_unsubscribe.clicked.connect(self.unsubscribe_from_topic)
+        self.btn_unsubscribe.setEnabled(False)  # Disabled by default
+        sub_btn_layout.addWidget(self.btn_subscribe)
+        sub_btn_layout.addWidget(self.btn_unsubscribe)
+        
+        # Add a list widget to show active subscriptions
+        self.subscription_list = QListWidget()
+        self.subscription_list.setMaximumHeight(80)
+        self.subscription_list.itemClicked.connect(self.on_subscription_selected)
+        
         wildcard_layout.addRow('Topic:', self.edit_wildcard)
-        wildcard_layout.addRow('', self.btn_subscribe)
+        wildcard_layout.addRow('', sub_btn_layout)
+        wildcard_layout.addRow('Active Subscriptions:', self.subscription_list)
         layout.addWidget(wildcard_group)
 
         # Broadcast controls
@@ -264,6 +319,20 @@ class MQTTBroadcasterWindow(QMainWindow):
         self.settings_tab = QWidget()
         layout = QVBoxLayout(self.settings_tab)
 
+        # MQTT Protocol Version
+        protocol_group = QGroupBox('MQTT Protocol')
+        protocol_layout = QFormLayout(protocol_group)
+        
+        self.protocol_combo = QComboBox()
+        self.protocol_combo.addItem("MQTT v3.1.1", mqtt.MQTTv311)
+        self.protocol_combo.addItem("MQTT v5", mqtt.MQTTv5)
+        self.protocol_combo.setCurrentIndex(1)  # Default to MQTTv5
+        self.protocol_combo.setToolTip("Some brokers may not support MQTT v5")
+        
+        protocol_layout.addRow('Protocol Version:', self.protocol_combo)
+        layout.addWidget(protocol_group)
+
+        # SSL settings
         ssl_group = QGroupBox('SSL/TLS Settings')
         ssl_layout = QFormLayout(ssl_group)
 
@@ -334,6 +403,13 @@ class MQTTBroadcasterWindow(QMainWindow):
         if not topic:
             self.show_error('Invalid Topic', 'Please enter a valid topic.')
             return
+            
+        # Get username and password if provided
+        username = self.edit_username.text().strip() or None
+        password = self.edit_password.text().strip() or None
+        
+        # Get selected protocol version
+        mqtt_version = self.protocol_combo.currentData()
 
         config = MQTTConfig(
             host=host,
@@ -346,9 +422,15 @@ class MQTTBroadcasterWindow(QMainWindow):
             ca_certs=self.ssl_settings['ca_certs'] or None,
             certfile=self.ssl_settings['certfile'] or None,
             keyfile=self.ssl_settings['keyfile'] or None,
-            auto_reconnect=self.check_auto_reconnect.isChecked()
+            auto_reconnect=self.check_auto_reconnect.isChecked(),
+            username=username,
+            password=password,
+            mqtt_version=mqtt_version
         )
 
+        # Disable connect button while connecting
+        self.btn_connect.setEnabled(False)
+        self.btn_connect.setText('Connecting...')
         self.statusBar.showMessage('Connecting...')
         threading.Thread(target=self._thread_connect, args=(config,), daemon=True).start()
 
@@ -363,11 +445,27 @@ class MQTTBroadcasterWindow(QMainWindow):
     def disconnect_from_broker(self) -> None:
         """Disconnect from the MQTT broker"""
         try:
+            # Disable disconnect button while disconnecting
+            self.btn_disconnect.setEnabled(False)
+            self.btn_disconnect.setText('Disconnecting...')
             self.mqtt.disconnect()
             self.statusBar.showMessage('Disconnected')
+            
+            # Reset UI states
+            self.btn_connect.setEnabled(True)
+            self.btn_connect.setText('Connect')
+            self.btn_disconnect.setEnabled(False)
+            self.btn_disconnect.setText('Disconnect')
+            self.btn_subscribe.setEnabled(False)
+            self.btn_broadcast.setEnabled(False)
+            self.connection_indicator.setStyleSheet('color: red; font-size: 24px;')
+            self.connection_indicator.setToolTip('Disconnected')
         except Exception as e:
             logger.error(f'Disconnection error: {e}', exc_info=True)
             self.show_error('Disconnection Error', str(e))
+            # Reset button state
+            self.btn_disconnect.setEnabled(True)
+            self.btn_disconnect.setText('Disconnect')
 
     def on_connection_status(self, is_connected: bool, error: str) -> None:
         """Handle connection status updates"""
@@ -377,16 +475,36 @@ class MQTTBroadcasterWindow(QMainWindow):
         """Update UI based on connection status"""
         if is_connected:
             self.statusBar.showMessage('Connected to broker')
+            self.connection_indicator.setStyleSheet('color: green; font-size: 24px;')
+            self.connection_indicator.setToolTip('Connected')
             self.append_message('System', 'Connected to broker')
+            
+            # Update button states
+            self.btn_connect.setEnabled(False)
+            self.btn_disconnect.setEnabled(True)
+            self.btn_subscribe.setEnabled(True)
+            self.btn_broadcast.setEnabled(True)
+            self.btn_connect.setText('Connect')
         else:
             self.statusBar.showMessage(f'Connection failed: {error}')
+            self.connection_indicator.setStyleSheet('color: red; font-size: 24px;')
+            self.connection_indicator.setToolTip(f'Disconnected: {error}' if error else 'Disconnected')
             self.append_message('Error', f'Connection failed: {error}')
+            
+            # Update button states
+            self.btn_connect.setEnabled(True)
+            self.btn_disconnect.setEnabled(False)
+            self.btn_subscribe.setEnabled(False)
+            self.btn_broadcast.setEnabled(False)
+            self.btn_connect.setText('Connect')
 
     def handle_disconnection(self, rc: int) -> None:
         """Handle unexpected disconnection"""
         if rc != 0:
             self.append_message('Error', f'Unexpected disconnection, code: {rc}')
         self.statusBar.showMessage('Disconnected from broker')
+        self.connection_indicator.setStyleSheet('color: red; font-size: 24px;')
+        self.connection_indicator.setToolTip('Disconnected')
 
     def start_broadcast(self) -> None:
         """Start broadcasting messages"""
@@ -408,7 +526,7 @@ class MQTTBroadcasterWindow(QMainWindow):
 
         threading.Thread(
             target=self._thread_broadcast, 
-            args=(count, message, interval), 
+            args=(count, message, interval_ms), 
             daemon=True
         ).start()
 
@@ -436,6 +554,7 @@ class MQTTBroadcasterWindow(QMainWindow):
                         logger.error(f'Broadcast error: {e}', exc_info=True)
                         failed += 1
                         self.append_message('Error', f'Failed to send message {i+1}: {str(e)}')
+
                 for i, topic, current_message, future in futures:
                     try:
                         future.result()
@@ -464,7 +583,7 @@ class MQTTBroadcasterWindow(QMainWindow):
                 if interval_ms > 0:
                     time.sleep(interval_ms / 1000.0)
 
-        self.append_message('System', f'Broadcast complete. Total: {count}, Sent: {total_sent}, Failed: {failed}')
+        self.append_message('System', f'Broadcast complete. Total: {count, Sent: {total_sent}, Failed: {failed}')
 
     def on_message_received(self, msg: Any) -> None:
         """Handle received MQTT messages"""
@@ -478,6 +597,18 @@ class MQTTBroadcasterWindow(QMainWindow):
                 payload = msg.payload.decode()
             else:
                 payload = str(msg.payload)
+                
+            # Try to format JSON payload for improved readability
+            try:
+                # Check if payload might be JSON
+                if (payload.startswith('{') and payload.endswith('}')) or \
+                   (payload.startswith('[') and payload.endswith(']')):
+                    json_obj = json.loads(payload)
+                    payload = json.dumps(json_obj, indent=2)
+            except json.JSONDecodeError:
+                # Not JSON, keep original payload
+                pass
+                
         except Exception as e:
             topic = 'Error'
             payload = f'Error decoding message: {e}'
@@ -596,8 +727,60 @@ class MQTTBroadcasterWindow(QMainWindow):
         try:
             self.mqtt.subscribe(topic, qos=self.spin_qos.value())
             self.append_message('System', f'Subscribed to topic: {topic}')
+            
+            # Add to subscription list if not already there
+            found = False
+            for i in range(self.subscription_list.count()):
+                if self.subscription_list.item(i).text() == topic:
+                    found = True
+                    break
+            
+            if not found:
+                self.subscription_list.addItem(topic)
+                
         except Exception as e:
             self.show_error('Subscribe Error', str(e))
+
+    def unsubscribe_from_topic(self) -> None:
+        """Unsubscribe from a selected topic"""
+        if not self.mqtt.is_connected:
+            self.show_error('Not Connected', 'Please connect to a broker first')
+            return
+        
+        # Get selected topic from list or from the edit field
+        selected_items = self.subscription_list.selectedItems()
+        if selected_items:
+            topic = selected_items[0].text()
+        else:
+            topic = self.edit_wildcard.text().strip()
+            if not topic:
+                self.show_error('Invalid Topic', 'Please select a topic from the list or enter a topic')
+                return
+        
+        try:
+            self.mqtt.unsubscribe(topic)
+            self.append_message('System', f'Unsubscribed from topic: {topic}')
+            
+            # Remove from the list
+            for i in range(self.subscription_list.count()):
+                if self.subscription_list.item(i).text() == topic:
+                    self.subscription_list.takeItem(i)
+                    break
+                    
+            # Disable unsubscribe button if no items left
+            if self.subscription_list.count() == 0:
+                self.btn_unsubscribe.setEnabled(False)
+                
+        except Exception as e:
+            self.show_error('Unsubscribe Error', str(e))
+
+    def on_subscription_selected(self, item) -> None:
+        """Handle selection of a subscription from the list"""
+        if item:
+            self.edit_wildcard.setText(item.text())
+            self.btn_unsubscribe.setEnabled(True)
+        else:
+            self.btn_unsubscribe.setEnabled(False)
 
     def export_messages(self) -> None:
         """Export message history to CSV"""
@@ -639,9 +822,35 @@ class MQTTBroadcasterWindow(QMainWindow):
         except Exception as e:
             logger.error("Error saving channel stats: " + str(e))
 
+    def load_subscriptions(self) -> None:
+        """Load saved topic subscriptions"""
+        try:
+            with open(self.subscriptions_file, 'r') as f:
+                subscriptions = json.load(f)
+                # Add loaded subscriptions to UI list
+                for topic in subscriptions:
+                    self.subscription_list.addItem(topic)
+            logger.info("Subscriptions loaded.")
+        except Exception as e:
+            logger.info("Subscriptions file not found or error loading: " + str(e))
+
+    def save_subscriptions(self) -> None:
+        """Save topic subscriptions to file"""
+        try:
+            subscriptions = []
+            for i in range(self.subscription_list.count()):
+                subscriptions.append(self.subscription_list.item(i).text())
+                
+            with open(self.subscriptions_file, 'w') as f:
+                json.dump(subscriptions, f)
+            logger.info("Subscriptions saved.")
+        except Exception as e:
+            logger.error("Error saving subscriptions: " + str(e))
+
     def closeEvent(self, event) -> None:
         """Handle window close event"""
         self.save_channel_stats()
+        self.save_subscriptions()
         event.accept()
 
     def update_message_filter(self, filter_text: str) -> None:
@@ -652,11 +861,27 @@ class MQTTBroadcasterWindow(QMainWindow):
     def refresh_messages(self) -> None:
         """Refresh the displayed messages based on current filter"""
         self.text_messages.clear()
+        messages_to_display = []
+        
         with self.message_queue.lock:
             messages = list(self.message_queue.queue.queue)
-        for msg in messages:
-            if not self.message_filter or self.message_filter.lower() in msg.topic.lower():
-                self.text_messages.append(f'[{msg.timestamp}] {msg.topic}: {msg.payload}')
+            for msg in messages:
+                if not self.message_filter or self.message_filter.lower() in msg.topic.lower():
+                    messages_to_display.append(msg)
+        
+        for msg in messages_to_display:
+            # Get color for this topic
+            if msg.topic not in self.topic_colors:
+                self.topic_colors[msg.topic] = self.color_palette[self.next_color_index % len(self.color_palette)]
+                self.next_color_index += 1
+            
+            color = self.topic_colors[msg.topic]
+            
+            # Apply formatted text with color
+            self.text_messages.setTextColor(color)
+            self.text_messages.append(f'[{msg.timestamp}] {msg.topic}:')
+            self.text_messages.setTextColor(QColor("black"))  # Reset to default for payload
+            self.text_messages.insertPlainText(f' {msg.payload}\n')
 
     def clear_messages(self) -> None:
         """Clear all displayed messages"""
@@ -671,7 +896,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     window = MQTTBroadcasterWindow()
     window.show()
-    sys.exit(app.exec())
+    sys.exit(app.exec_())  # Changed from app.exec() to app.exec_() for PyQt5
 
 
 if __name__ == '__main__':
